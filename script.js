@@ -41,20 +41,12 @@ document.addEventListener('DOMContentLoaded', function () {
     function formatDecimalTick(d, domainSpan) {
         if (Number.isInteger(d)) return d.toString();
 
-        let precision;
-        if (domainSpan <= 0.0001) { // e.g., 0.00001 to 0.00002
-            precision = 5;
-        } else if (domainSpan <= 0.001) { // e.g., 0.0001 to 0.0002
-            precision = 4;
-        } else if (domainSpan <= 0.01) { // e.g., 0.001 to 0.002
-            precision = 3;
-        } else if (domainSpan <= 0.1) { // e.g., 0.01 to 0.02
-            precision = 2;
-        } else if (domainSpan <= 10) { // e.g., 0.1 to 0.2 or 1 to 2
-            precision = 1;
-        } else { // Larger spans
-            precision = 0;
-        }
+        // Calculate required precision based on the magnitude of the domain span.
+        // We want enough precision to show meaningful differences within the span.
+        // A span of 10^n typically requires about -n decimal places.
+        // Add a buffer to ensure sufficient detail for ticks within the span.
+        // Increase buffer and ensure a minimum precision for very small spans.
+        let precision = Math.max(1, Math.ceil(-Math.log10(domainSpan)) + 3); // Increased buffer to +3, min precision 1
 
         // Use toFixed for precision, then remove unnecessary trailing zeros.
         let s = d.toFixed(precision);
