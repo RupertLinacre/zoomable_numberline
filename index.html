@@ -4,20 +4,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Zoomable Numberlines</title>
+    <title>Interactive Number-Line Explorer</title>
     <link rel="stylesheet" href="style.css">
-    <script src="https://d3js.org/d3.v7.min.js"></script>
 </head>
 
 <body>
-    <div class="app-container">
-        <div class="controls">
-            <button id="resetButton">Reset</button>
-        </div>
-        <div id="topNumberline" class="numberline-container"></div>
-        <div id="decimalNumberline" class="numberline-container"></div>
-        <div id="fractionNumberline" class="numberline-container"></div>
+    <div class="number-line-container" id="summary-container">
+        <svg id="summary-line-svg"></svg>
     </div>
+    <div class="number-line-container" id="decimal-container">
+        <svg id="decimal-detail-svg"></svg>
+    </div>
+    <div class="number-line-container" id="fraction-container">
+        <svg id="fraction-detail-svg"></svg>
+    </div>
+    <button id="resetButton">Reset</button>
+
+    <script src="https://d3js.org/d3.v7.min.js"></script>
     <script src="script.js"></script>
 </body>
 

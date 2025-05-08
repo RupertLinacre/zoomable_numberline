@@ -1,468 +1,360 @@
 document.addEventListener('DOMContentLoaded', () => {
+    // --- 3. Single Source of Truth ---
     const initialState = {
         domain: [-100, 100],
-        brushExtent: [-10, 10],
-        detailZoom: {
-            decimals: d3.zoomIdentity,
-            fractions: d3.zoomIdentity
-        }
+        brush: [-10, 10]
     };
+    let state = { ...initialState };
 
-    let state = deepCopy(initialState);
+    let isBrushing = false; // Flag to indicate an active user brush operation
 
-    const margin = { top: 20, right: 30, bottom: 40, left: 30 };
-    const height = 100; // Fixed height for SVGs
+    // --- SVG Setup & Dimensions ---
+    const margin = { top: 10, right: 20, bottom: 30, left: 20 };
 
-    // --- Helper Functions ---
-    function deepCopy(obj) {
-        return JSON.parse(JSON.stringify(obj)); // Simple deep copy for this state structure
+    function getDimensions(selector) {
+        const container = document.querySelector(selector);
+        const svgEl = container.querySelector('svg'); // Renamed to avoid conflict
+        const width = svgEl.clientWidth - margin.left - margin.right;
+        const height = svgEl.clientHeight - margin.top - margin.bottom;
+        return { svgEl, width, height, clientWidth: svgEl.clientWidth, clientHeight: svgEl.clientHeight };
     }
 
+    // --- Top Band (Summary Line) ---
+    const topBand = getDimensions('#summary-container');
+    const svgTop = d3.select(topBand.svgEl) // Use svgEl from getDimensions
+        .attr("width", topBand.clientWidth)
+        .attr("height", topBand.clientHeight);
+    const gTop = svgTop.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+
+    const xTop = d3.scaleLinear().range([0, topBand.width]);
+    const xAxisTop = d3.axisBottom(xTop);
+    const gXAxisTop = gTop.append("g")
+        .attr("class", "axis axis--x")
+        .attr("transform", `translate(0,${topBand.height})`);
+
+    // --- Middle Band (Decimal Detail) ---
+    const decimalBand = getDimensions('#decimal-container');
+    const svgDecimal = d3.select(decimalBand.svgEl)
+        .attr("width", decimalBand.clientWidth)
+        .attr("height", decimalBand.clientHeight);
+    const gDecimal = svgDecimal.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+
+    const xDecimal = d3.scaleLinear().range([0, decimalBand.width]);
+    const xAxisDecimal = d3.axisBottom(xDecimal);
+    const gXAxisDecimal = gDecimal.append("g")
+        .attr("class", "axis axis--x")
+        .attr("transform", `translate(0,${decimalBand.height})`);
+
+    // --- Bottom Band (Fraction Detail) ---
+    const fractionBand = getDimensions('#fraction-container');
+    const svgFraction = d3.select(fractionBand.svgEl)
+        .attr("width", fractionBand.clientWidth)
+        .attr("height", fractionBand.clientHeight);
+    const gFraction = svgFraction.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+
+    const xFraction = d3.scaleLinear().range([0, fractionBand.width]);
+    const xAxisFraction = d3.axisBottom(xFraction).tickFormat(formatFractionTick).ticks(7);
+    const gXAxisFraction = gFraction.append("g")
+        .attr("class", "axis axis--x")
+        .attr("transform", `translate(0,${fractionBand.height})`);
+
+    // --- Helper: Fraction Formatter (same as before) ---
+    function gcd(a, b) { /* ... */ }
+    function formatFractionTick(value) { /* ... */ }
+    // (Copy the full fraction formatter functions from the previous correct version)
     function gcd(a, b) {
-        a = Math.abs(a);
-        b = Math.abs(b);
-        if (b === 0) return a;
-        return gcd(b, a % b);
+        return b ? gcd(b, a % b) : a;
     }
 
-    function formatFraction(num) {
-        if (Number.isInteger(num)) {
-            return num.toString();
-        }
-        const sign = num < 0 ? "-" : "";
-        num = Math.abs(num);
-        const integerPart = Math.floor(num);
-        const fractionalPart = num - integerPart;
-
-        if (fractionalPart < 1e-9) { // Effectively zero
-            return sign + integerPart.toString();
+    function formatFractionTick(value) {
+        const epsilon = 1e-9;
+        // Check for whole numbers (including 0) carefully
+        if (Math.abs(value - Math.round(value)) < epsilon) {
+            return Math.round(value).toString();
         }
 
-        // Try denominators up to a certain limit for "child-friendly" fractions
-        const maxDenominator = 16; // Can be adjusted
-        let bestN = 1, bestD = 2; // Default to 1/2 if no exact match
-        let minError = Infinity;
+        const sign = value < 0 ? "-" : "";
+        let absValue = Math.abs(value);
 
-        for (let d = 2; d <= maxDenominator; d++) {
-            const n = Math.round(fractionalPart * d);
-            if (n === 0) continue; // Avoid 0/d
-            const error = Math.abs(fractionalPart - n / d);
-            if (error < minError) {
-                minError = error;
-                bestN = n;
-                bestD = d;
-            }
-            if (error < 1e-9) break; // Found a very good match
-        }
+        let integerPart = Math.floor(absValue + epsilon);
+        let fractionalPart = absValue - integerPart;
 
-        const common = gcd(bestN, bestD);
-        const numerator = bestN / common;
-        const denominator = bestD / common;
+        if (fractionalPart < epsilon) return sign + integerPart; // Should be caught by round check
+        if (1 - fractionalPart < epsilon && integerPart + 1 !== 0) return sign + (integerPart + 1);
+        if (1 - fractionalPart < epsilon && integerPart + 1 === 0 && sign === "-") return "0"; // Handle -0 case correctly becoming "0" for things like -0.999... -> 0
 
-        if (numerator === denominator) { // e.g. 2/2 becomes 1
-            return sign + (integerPart + 1).toString();
-        }
-        if (numerator === 0) {
-            return sign + integerPart.toString();
-        }
+        let bestN = 0, bestD = 1;
+        let minError = Math.abs(fractionalPart);
 
-
-        let fractionStr = `${numerator}/${denominator}`;
-        if (integerPart > 0) {
-            return `${sign}${integerPart} ${fractionStr}`;
-        }
-        return sign + fractionStr;
-    }
-
-    // --- DOM Selections ---
-    const topSvg = d3.select("#topNumberline").append("svg");
-    const decimalSvg = d3.select("#decimalNumberline").append("svg");
-    const fractionSvg = d3.select("#fractionNumberline").append("svg");
-    const resetButton = d3.select("#resetButton");
-
-    // --- Scales (will be updated) ---
-    let topXScale, decimalXScale, fractionXScale;
-    let topAxis, decimalAxis, fractionAxis;
-    let topAxisGroup, decimalAxisGroup, fractionAxisGroup;
-    let topBrush, topBrushGroup;
-    let topZoom, decimalZoom, fractionZoom;
-
-    function initializeNumberlines() {
-        const numberlineContainers = d3.selectAll(".numberline-container svg");
-        const availableWidth = numberlineContainers.node().getBoundingClientRect().width;
-        const width = availableWidth - margin.left - margin.right;
-
-        // --- Top Numberline ---
-        topXScale = d3.scaleLinear().range([0, width]);
-        topAxis = d3.axisBottom(topXScale);
-        topSvg.selectAll("*").remove(); // Clear previous elements
-        const topG = topSvg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
-        topAxisGroup = topG.append("g").attr("class", "axis axis--x").attr("transform", `translate(0,${height - margin.top - margin.bottom - 10})`);
-
-        topBrush = d3.brushX()
-            .extent([[0, 0], [width, height - margin.top - margin.bottom - 10]]) // Area for brush
-            .on("brush end", brushed);
-
-        topBrushGroup = topG.append("g").attr("class", "brush").call(topBrush);
-
-        topZoom = d3.zoom()
-            .scaleExtent([0.1, 100]) // Example scale extent, adjust as needed
-            .translateExtent([[-Infinity, 0], [Infinity, 0]]) // Pan anywhere horizontally
-            .on("zoom", topZoomed);
-        topSvg.call(topZoom);
-
-
-        // --- Decimal Numberline ---
-        decimalXScale = d3.scaleLinear().range([0, width]);
-        decimalAxis = d3.axisBottom(decimalXScale);
-        decimalSvg.selectAll("*").remove();
-        const decimalG = decimalSvg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
-        decimalAxisGroup = decimalG.append("g").attr("class", "axis axis--x").attr("transform", `translate(0,${height - margin.top - margin.bottom - 10})`);
-
-        decimalZoom = d3.zoom()
-            .on("zoom", (event) => detailZoomed(event, 'decimals', decimalSvg, decimalXScale, decimalAxis, decimalAxisGroup));
-        decimalSvg.call(decimalZoom);
-
-
-        // --- Fraction Numberline ---
-        fractionXScale = d3.scaleLinear().range([0, width]);
-        fractionAxis = d3.axisBottom(fractionXScale).tickFormat(formatFraction);
-        fractionSvg.selectAll("*").remove();
-        const fractionG = fractionSvg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
-        fractionAxisGroup = fractionG.append("g").attr("class", "axis axis--x").attr("transform", `translate(0,${height - margin.top - margin.bottom - 10})`);
-
-        fractionZoom = d3.zoom()
-            .on("zoom", (event) => detailZoomed(event, 'fractions', fractionSvg, fractionXScale, fractionAxis, fractionAxisGroup));
-        fractionSvg.call(fractionZoom);
-    }
-
-
-    // --- Update Functions ---
-    function updateViews() {
-        const availableWidth = topSvg.node().getBoundingClientRect().width;
-        const width = availableWidth - margin.left - margin.right;
-
-        // Update Top Numberline
-        topXScale.domain(state.domain).range([0, width]);
-        topAxisGroup.call(topAxis.scale(topXScale));
-        topZoom.extent([[margin.left, margin.top], [availableWidth - margin.right, height - margin.bottom]]);
-
-        // Programmatically move brush if state.brushExtent changed
-        // Ensure brush extent is valid before moving
-        if (state.brushExtent && state.brushExtent[0] < state.brushExtent[1]) {
-            const brushPixelStart = topXScale(state.brushExtent[0]);
-            const brushPixelEnd = topXScale(state.brushExtent[1]);
-            if (isFinite(brushPixelStart) && isFinite(brushPixelEnd)) {
-                // Check if current brush selection matches state, to avoid infinite loops
-                const currentSelection = d3.brushSelection(topBrushGroup.node());
-                if (!currentSelection ||
-                    Math.abs(currentSelection[0] - brushPixelStart) > 1 ||
-                    Math.abs(currentSelection[1] - brushPixelEnd) > 1) {
-                    topBrushGroup.call(topBrush.move, [brushPixelStart, brushPixelEnd]);
-                }
-            } else {
-                topBrushGroup.call(topBrush.move, null); // Clear brush if extent is not valid
-            }
-        } else {
-            topBrushGroup.call(topBrush.move, null); // Clear brush if extent is invalid
-        }
-
-
-        // Update Decimal Numberline
-        const decimalEffectiveDomain = state.detailZoom.decimals.rescaleX(decimalXScale.domain(state.brushExtent)).domain();
-        decimalXScale.domain(decimalEffectiveDomain).range([0, width]);
-        decimalAxisGroup.call(decimalAxis.scale(decimalXScale));
-        // Constrain detail zoom
-        decimalZoom.translateExtent([[decimalXScale.range()[0], -Infinity], [decimalXScale.range()[1], Infinity]])
-            .scaleExtent([1, Infinity]); // Must at least show full brushExtent
-
-
-        // Update Fraction Numberline
-        const fractionEffectiveDomain = state.detailZoom.fractions.rescaleX(fractionXScale.domain(state.brushExtent)).domain();
-        fractionXScale.domain(fractionEffectiveDomain).range([0, width]);
-
-        // Custom tick generation for fractions
-        const [fStart, fEnd] = fractionEffectiveDomain;
-        const fractionTicks = [];
-        const denominators = [1, 2, 3, 4, 5, 6, 8, 10, 12, 16]; // Denominators to try
-        const targetTickCount = Math.max(2, Math.min(10, Math.floor(width / 70))); // Aim for 5-10 ticks
-
-        let addedTicks = new Set(); // To avoid duplicate numerical values with different fraction representations
-
-        for (let d of denominators) {
-            for (let i = Math.floor(fStart * d) - 1; i <= Math.ceil(fEnd * d) + 1; i++) {
-                const val = i / d;
-                if (val >= fStart && val <= fEnd) {
-                    const simplifiedVal = parseFloat(formatFraction(val).replace(/[^\d.-/]/g, (match, offset, string) => {
-                        if (match === ' ') return ''; // Handle mixed numbers space
-                        if (match === '/' && string.indexOf('/') !== offset) return ''; // Only first slash
-                        return match;
-                    }).split(' ').map(s => { // Handle mixed numbers like "1 1/2"
-                        if (s.includes('/')) {
-                            const parts = s.split('/');
-                            return parseFloat(parts[0]) / parseFloat(parts[1]);
-                        }
-                        return parseFloat(s);
-                    }).reduce((a, b) => a + (a > 0 ? b : -b), 0)); // Sum parts for mixed numbers, careful with sign
-
-                    const roundedVal = Math.round(val * 1e6) / 1e6; // Round to avoid floating point issues in Set
-                    if (!addedTicks.has(roundedVal)) {
-                        fractionTicks.push(val);
-                        addedTicks.add(roundedVal);
+        for (let d_loop = 1; d_loop <= 12; d_loop++) {
+            for (let n_loop = 1; n_loop < d_loop; n_loop++) {
+                let currentError = Math.abs(fractionalPart - n_loop / d_loop);
+                if (currentError < minError - epsilon) {
+                    minError = currentError;
+                    bestN = n_loop;
+                    bestD = d_loop;
+                } else if (Math.abs(currentError - minError) < epsilon) {
+                    if (d_loop < bestD) {
+                        bestN = n_loop;
+                        bestD = d_loop;
                     }
                 }
             }
         }
-        // Sort and unique (though Set should handle uniqueness for roundedVal)
-        fractionTicks.sort((a, b) => a - b);
-        let uniqueFractionTicks = [...new Set(fractionTicks.map(t => Math.round(t * 1e6) / 1e6))].map(t => fractionTicks.find(ft => Math.round(ft * 1e6) / 1e6 === t));
 
-
-        // If too many ticks, try to thin them out, prioritizing smaller denominators or whole numbers
-        if (uniqueFractionTicks.length > targetTickCount * 1.5) {
-            uniqueFractionTicks = uniqueFractionTicks.filter((t, i) => {
-                if (Number.isInteger(t)) return true; // Keep integers
-                if (uniqueFractionTicks.length > targetTickCount && i % 2 !== 0 && Math.abs(t - Math.round(t)) > 0.1) return false; // Remove some non-integers
-                return true;
-            });
-            if (uniqueFractionTicks.length > targetTickCount * 1.5) { // Second pass if still too many
-                uniqueFractionTicks = d3.scaleLinear().domain(d3.extent(uniqueFractionTicks)).ticks(targetTickCount);
-            }
+        if (bestN === 0) { // Fractional part is best represented as 0 (or was integer initially)
+            if (integerPart === 0 && sign === "-") return "0"; // Avoid "-0"
+            return sign + integerPart;
         }
 
 
-        fractionAxis.tickValues(uniqueFractionTicks.length > 1 ? uniqueFractionTicks : fractionXScale.ticks(targetTickCount));
-        fractionAxisGroup.call(fractionAxis.scale(fractionXScale));
+        const common = gcd(bestN, bestD);
+        const simpleN = bestN / common;
+        const simpleD = bestD / common;
 
-        // Constrain detail zoom
-        fractionZoom.translateExtent([[fractionXScale.range()[0], -Infinity], [fractionXScale.range()[1], Infinity]])
-            .scaleExtent([1, Infinity]);
+        let result = "";
+        if (integerPart > 0) result += integerPart + " ";
+        else if (integerPart === 0 && sign === "-") { /* no space for "- n/d" */ }
+        else if (integerPart !== 0) result += integerPart + " ";
+
+
+        result += simpleN + "/" + simpleD;
+        if (integerPart === 0 && sign === "" && result === "0/1") return "0"; // Should not happen with bestN > 0
+        return sign + result;
     }
 
-    // --- Event Handlers ---
-    function topZoomed(event) {
-        const newDomain = event.transform.rescaleX(topXScale.copy().domain(initialState.domain)).domain();
 
-        // Clamp domain to prevent extreme zoom out beyond reasonable limits if needed
-        // For now, allow wide zoom out, but could add clamping here, e.g.
-        // newDomain[0] = Math.max(newDomain[0], -10000);
-        // newDomain[1] = Math.min(newDomain[1], 10000);
+    // --- Brush Element ---
+    // gBrush must be defined before it's used in zoom.filter
+    const gBrush = gTop.append("g").attr("class", "brush");
 
-        state.domain = newDomain;
+    // --- Zoom Behavior ---
+    const zoom = d3.zoom()
+        .scaleExtent([
+            (initialState.domain[1] - initialState.domain[0]) / 2000,
+            (initialState.domain[1] - initialState.domain[0]) / 0.1
+        ])
+        .extent([[0, 0], [topBand.width, topBand.height]]) // Relative to gTop if zoom on gTop
+        .translateExtent([[-Infinity, -Infinity], [Infinity, Infinity]])
+        .filter(event => {
+            // Standard D3 zoom filter: allow left-button drag, wheel, touch.
+            // No right-click drag, no ctrl-key drag (often for brush).
+            const standardFilter = !event.ctrlKey && !event.button; // !event.button for left mouse button (0)
+            if (!standardFilter) return false;
 
-        // Clamp brushExtent
-        const oldBrushMin = state.brushExtent[0];
-        const oldBrushMax = state.brushExtent[1];
-        let newBrushMin = Math.max(state.domain[0], oldBrushMin);
-        let newBrushMax = Math.min(state.domain[1], oldBrushMax);
+            // If mousedown/touchstart, check if it's on the brush.
+            // If so, brush handles it, zoom doesn't start a gesture.
+            if (event.type === "mousedown" || event.type === "touchstart") {
+                // gBrush.node() is the <g class="brush"> element.
+                // The brush creates an overlay rect inside gBrush for initiating new brushes
+                // and handles on the selection.
+                if (gBrush.node() && gBrush.node().contains(event.target)) {
+                    return false; // Don't start zoom if event target is within the brush group
+                }
+            }
+            // Allow zoom for wheel events, or mousedown/touchstart on background (not on brush)
+            return true;
+        })
+        .on("zoom", zoomed);
 
-        if (newBrushMin >= newBrushMax) { // Brush is outside or collapsed
-            const domainWidth = state.domain[1] - state.domain[0];
-            const initialBrushWidth = initialState.brushExtent[1] - initialState.brushExtent[0];
-            let defaultBrushWidth = Math.min(initialBrushWidth, domainWidth * 0.8); // Try to keep initial width or 80% of domain
-            if (domainWidth < defaultBrushWidth) defaultBrushWidth = domainWidth;
+    svgTop.call(zoom); // Apply zoom to svgTop
 
+    // --- Brush Behavior ---
+    const brush = d3.brushX()
+        .extent([[0, 0], [topBand.width, topBand.height]]) // Relative to gBrush's coordinate system
+        .on("start", brushStarted)
+        .on("brush", brushedInProgress)
+        .on("end", brushEnded);
 
-            const domainCenter = (state.domain[0] + state.domain[1]) / 2;
-            newBrushMin = domainCenter - defaultBrushWidth / 2;
-            newBrushMax = domainCenter + defaultBrushWidth / 2;
+    gBrush.call(brush); // Apply brush to gBrush AFTER gBrush is defined
 
-            // Ensure it's still within the new domain
-            newBrushMin = Math.max(state.domain[0], newBrushMin);
-            newBrushMax = Math.min(state.domain[1], newBrushMax);
-            if (newBrushMin >= newBrushMax) { // Failsafe if domain is tiny
-                newBrushMin = state.domain[0];
-                newBrushMax = state.domain[1];
+    // --- Behavior Rules Implementation ---
+    function calculateResetBrushForDomain(domain) {
+        const domainSpan = domain[1] - domain[0];
+        const center = (domain[0] + domain[1]) / 2;
+        let newBrushSpan;
+
+        if (domainSpan <= 1e-6) {
+            newBrushSpan = 1; // Default span if domain is zero or negative
+        } else if (domainSpan >= 20) {
+            newBrushSpan = 20;
+        } else {
+            newBrushSpan = domainSpan * 0.1;
+        }
+        newBrushSpan = Math.max(newBrushSpan, 1e-6);
+
+        let newBrush = [center - newBrushSpan / 2, center + newBrushSpan / 2];
+        newBrush[0] = Math.max(domain[0], newBrush[0]);
+        newBrush[1] = Math.min(domain[1], newBrush[1]);
+
+        if (newBrush[0] >= newBrush[1] && domain[0] < domain[1]) {
+            newBrush[0] = domain[0];
+            newBrush[1] = Math.min(domain[1], domain[0] + newBrushSpan);
+            if (newBrush[0] >= newBrush[1]) {
+                newBrush[1] = domain[1];
             }
         }
-        state.brushExtent = [newBrushMin, newBrushMax];
-
-        state.detailZoom.decimals = d3.zoomIdentity;
-        state.detailZoom.fractions = d3.zoomIdentity;
-
-        // Reset detail view transforms programmatically
-        decimalSvg.call(decimalZoom.transform, d3.zoomIdentity);
-        fractionSvg.call(fractionZoom.transform, d3.zoomIdentity);
-
-        updateViews();
+        return newBrush;
     }
 
-    function brushed(event) {
-        if (!event.sourceEvent) return; // Ignore brush-by-zoom
-        if (!event.selection) { // If brush is cleared
-            // Optionally reset to a default or do nothing specific here.
-            // For now, let's assume we want to keep the last valid brushExtent
-            // or allow it to be "empty" which updateViews handles by clearing brush.
-            // state.brushExtent = null; // or some default
-            updateViews(); // Update detail views to reflect empty/old state
+    function zoomed(event) {
+        // The zoom.filter should prevent pan-during-brush.
+        // This isBrushing check is a fallback or for programmatic scenarios.
+        if (isBrushing && event.sourceEvent && (event.sourceEvent.type === 'mousemove' || event.sourceEvent.type === 'touchmove')) {
+            // If actively brushing AND this zoom event is from a user drag (mousemove/touchmove),
+            // this implies a pan attempt during brush. The filter should have caught this.
+            // If it didn't, returning here prevents domain change.
             return;
         }
 
-        const newBrushExtent = event.selection.map(topXScale.invert);
+        const transform = event.transform;
+        const referenceScale = d3.scaleLinear().domain(initialState.domain).range(xTop.range());
+        state.domain = transform.rescaleX(referenceScale).domain();
 
-        // Clamp to current domain
-        state.brushExtent = [
-            Math.max(state.domain[0], newBrushExtent[0]),
-            Math.min(state.domain[1], newBrushExtent[1])
-        ];
+        let [b0, b1] = state.brush;
+        b0 = Math.max(b0, state.domain[0]);
+        b1 = Math.min(b1, state.domain[1]);
 
-        state.detailZoom.decimals = d3.zoomIdentity;
-        state.detailZoom.fractions = d3.zoomIdentity;
+        if (b0 >= b1) {
+            state.brush = calculateResetBrushForDomain(state.domain);
+        } else {
+            state.brush = [b0, b1];
+        }
 
-        // Reset detail view transforms programmatically
-        decimalSvg.call(decimalZoom.transform, d3.zoomIdentity);
-        fractionSvg.call(fractionZoom.transform, d3.zoomIdentity);
-
-        updateViews(); // Only need to update detail views, but full update is safer
+        renderAll();
     }
 
-    function detailZoomed(event, type, svgElement, scale, axis, axisGroup) {
-        // The scale's domain is state.brushExtent
-        // The event.transform is applied to this scale.
-        const baseScale = d3.scaleLinear().domain(state.brushExtent).range(scale.range());
-        let newTransform = event.transform;
-
-        // Constrain panning: effective domain must stay within brushExtent
-        const currentEffectiveDomain = newTransform.rescaleX(baseScale).domain();
-
-        if (currentEffectiveDomain[0] < state.brushExtent[0]) {
-            newTransform = newTransform.translate((baseScale(state.brushExtent[0]) - baseScale(currentEffectiveDomain[0])), 0);
+    function brushStarted(event) {
+        if (event.sourceEvent) {
+            isBrushing = true;
         }
-        if (currentEffectiveDomain[1] > state.brushExtent[1]) {
-            newTransform = newTransform.translate((baseScale(state.brushExtent[1]) - baseScale(currentEffectiveDomain[1])), 0);
-        }
+    }
 
-        // Constrain scaling: cannot zoom out beyond showing the full brushExtent
-        if (newTransform.k < 1) {
-            newTransform = d3.zoomIdentity.translate(newTransform.x, newTransform.y).scale(1);
-        }
-        // Apply a max zoom if desired, e.g., newTransform.k = Math.min(newTransform.k, 20);
+    function brushedInProgress(event) {
+        if (!event.sourceEvent) return;
 
-        state.detailZoom[type] = newTransform;
+        if (event.selection) {
+            let newBrush = event.selection.map(xTop.invert);
+            newBrush[0] = Math.max(state.domain[0], newBrush[0]);
+            newBrush[1] = Math.min(state.domain[1], newBrush[1]);
+            if (newBrush[0] > newBrush[1]) newBrush[0] = newBrush[1];
 
-        // Programmatically set the transform on the SVG element to reflect constraints
-        // This also avoids infinite loops if the event wasn't from user.
-        if (svgElement.property("__zoom").k !== newTransform.k ||
-            svgElement.property("__zoom").x !== newTransform.x) {
-            svgElement.call(type === 'decimals' ? decimalZoom.transform : fractionZoom.transform, newTransform);
-        }
-
-        // Update only this view
-        const effectiveDomain = newTransform.rescaleX(d3.scaleLinear().domain(state.brushExtent)).domain();
-        scale.domain(effectiveDomain); // Update the scale passed to the axis
-
-        if (type === 'fractions') {
-            // Recalculate ticks for fractions based on new effectiveDomain
-            const [fStart, fEnd] = effectiveDomain;
-            const fractionTicks = [];
-            const denominators = [1, 2, 3, 4, 5, 6, 8, 10, 12, 16];
-            const targetTickCount = Math.max(2, Math.min(10, Math.floor(scale.range()[1] / 70)));
-            let addedTicks = new Set();
-
-            for (let d of denominators) {
-                for (let i = Math.floor(fStart * d) - 1; i <= Math.ceil(fEnd * d) + 1; i++) {
-                    const val = i / d;
-                    if (val >= fStart && val <= fEnd) {
-                        const roundedVal = Math.round(val * 1e6) / 1e6;
-                        if (!addedTicks.has(roundedVal)) {
-                            fractionTicks.push(val);
-                            addedTicks.add(roundedVal);
-                        }
-                    }
-                }
+            if (state.brush[0] !== newBrush[0] || state.brush[1] !== newBrush[1]) {
+                state.brush = newBrush;
+                renderDecimalBand();
+                renderFractionBand();
             }
-            fractionTicks.sort((a, b) => a - b);
-            let uniqueFractionTicks = [...new Set(fractionTicks.map(t => Math.round(t * 1e6) / 1e6))].map(t => fractionTicks.find(ft => Math.round(ft * 1e6) / 1e6 === t));
-
-            if (uniqueFractionTicks.length > targetTickCount * 1.5) {
-                uniqueFractionTicks = uniqueFractionTicks.filter((t, i) => {
-                    if (Number.isInteger(t)) return true;
-                    if (uniqueFractionTicks.length > targetTickCount && i % 2 !== 0 && Math.abs(t - Math.round(t)) > 0.1) return false;
-                    return true;
-                });
-                if (uniqueFractionTicks.length > targetTickCount * 1.5) {
-                    uniqueFractionTicks = d3.scaleLinear().domain(d3.extent(uniqueFractionTicks)).ticks(targetTickCount);
-                }
-            }
-            axis.tickValues(uniqueFractionTicks.length > 1 ? uniqueFractionTicks : scale.ticks(targetTickCount));
         }
+    }
 
-        axisGroup.call(axis.scale(scale));
+    function brushEnded(event) {
+        const userEnd = !!event.sourceEvent;
+        isBrushing = false; // Set immediately for both user and programmatic ends.
+
+        if (userEnd) {
+            if (event.selection) {
+                let finalBrush = event.selection.map(xTop.invert);
+                finalBrush[0] = Math.max(state.domain[0], finalBrush[0]);
+                finalBrush[1] = Math.min(state.domain[1], finalBrush[1]);
+                if (finalBrush[0] > finalBrush[1]) finalBrush[0] = finalBrush[1];
+                state.brush = finalBrush;
+            } else {
+                state.brush = calculateResetBrushForDomain(state.domain);
+            }
+            renderAll(); // Full re-render to ensure consistency.
+        }
+        // For programmatic brush end (sourceEvent is null), usually called from renderAll/renderTopBand.
+        // isBrushing is already false. No further renderAll() needed here to avoid loops.
+    }
+
+    // --- Rendering Functions ---
+    function renderTopBand() {
+        xTop.domain(state.domain);
+        gXAxisTop.call(xAxisTop);
+
+        // Check if brush values are valid and within the domain before mapping to pixels
+        if (state.brush && state.brush.length === 2 &&
+            state.brush[0] <= state.brush[1] &&
+            state.brush[1] >= state.domain[0] && // Brush end is after domain start
+            state.brush[0] <= state.domain[1]) { // Brush start is before domain end
+
+            // Clamp brush to be strictly within domain for pixel mapping to avoid NaN/Infinity from xTop
+            const effectiveBrush = [
+                Math.max(state.domain[0], state.brush[0]),
+                Math.min(state.domain[1], state.brush[1])
+            ];
+
+            if (effectiveBrush[0] <= effectiveBrush[1]) { // Ensure still valid after clamping
+                const pixelBrush = [xTop(effectiveBrush[0]), xTop(effectiveBrush[1])];
+                if (isFinite(pixelBrush[0]) && isFinite(pixelBrush[1])) {
+                    gBrush.call(brush.move, pixelBrush);
+                } else {
+                    gBrush.call(brush.move, null);
+                }
+            } else {
+                gBrush.call(brush.move, null); // Clamped brush is invalid
+            }
+        } else {
+            gBrush.call(brush.move, null); // Brush state is invalid or completely outside domain
+        }
+    }
+
+    function renderDecimalBand() { /* ... */ } // (Same as before)
+    function renderFractionBand() { /* ... */ } // (Same as before)
+    // (Copy the full renderDecimalBand and renderFractionBand functions from the previous correct version)
+    function renderDecimalBand() {
+        if (!state.brush || state.brush[0] > state.brush[1]) {
+            gXAxisDecimal.selectAll("*").remove(); // Clear axis if brush is invalid
+            return;
+        }
+        xDecimal.domain(state.brush);
+        gXAxisDecimal.call(xAxisDecimal);
+    }
+
+    function renderFractionBand() {
+        if (!state.brush || state.brush[0] > state.brush[1]) {
+            gXAxisFraction.selectAll("*").remove(); // Clear axis if brush is invalid
+            return;
+        }
+        xFraction.domain(state.brush);
+        const brushSpan = state.brush[1] - state.brush[0];
+        let numTicks = 7;
+        if (brushSpan === 0) numTicks = 1;
+        else if (brushSpan < 0.001 && brushSpan > 0) numTicks = 2; // Very small span
+        else if (brushSpan < 0.01) numTicks = 3;
+        else if (brushSpan < 0.1) numTicks = 3;
+        else if (brushSpan < 1) numTicks = Math.max(3, Math.min(5, Math.floor(brushSpan / 0.15)));
+        else if (brushSpan > 50) numTicks = 10;
+        else if (brushSpan > 10) numTicks = Math.min(10, Math.floor(brushSpan / 2));
+
+
+        // Ensure at least 2 ticks if possible, to show range
+        if (numTicks < 2 && brushSpan > 1e-6) numTicks = 2;
+        // Max ticks can also be set, e.g. 10-12
+        numTicks = Math.min(numTicks, 10);
+
+
+        xAxisFraction.ticks(numTicks);
+        gXAxisFraction.call(xAxisFraction);
     }
 
 
-    function handleReset() {
-        state = deepCopy(initialState);
-
-        // Reset top numberline zoom & brush
-        topSvg.call(topZoom.transform, d3.zoomIdentity); // This will trigger topZoomed, which handles state updates and view refresh
-
-        // topZoomed will reset detail zooms and call updateViews, which moves the brush
-        // Explicitly ensure brush is moved AFTER zoom identity is set on topSvg.
-        // The topZoomed function should handle setting the brushExtent and updating views correctly.
-        // However, to be absolutely sure the brush visuals are correct:
-        // Need a slight delay or ensure updateViews after topZoom.transform is fully processed.
-        // The call to topZoom.transform will trigger its "zoom" event handler (topZoomed)
-        // topZoomed will:
-        // 1. Set state.domain from initialState (due to d3.zoomIdentity on initial scale)
-        // 2. Set state.brushExtent based on initialState.brushExtent (clamped to new domain if necessary)
-        // 3. Reset state.detailZoom
-        // 4. Call updateViews()
-        // updateViews() will then use these reset states to render everything, including brush position.
+    function renderAll() {
+        renderTopBand();
+        renderDecimalBand();
+        renderFractionBand();
     }
 
-    resetButton.on("click", handleReset);
-
-    // Initial setup
-    initializeNumberlines();
-
-    // Initial render. Reset top zoom to establish initial state transform for top numberline
-    // This ensures the initial view matches initialState.domain without any zoom transform.
-    const initialTopTransform = d3.zoomIdentity
-        .translate(-topXScale(initialState.domain[0]), 0) // This part might be tricky if scale isn't set up right.
-        .scale((topXScale.range()[1] - topXScale.range()[0]) / (initialState.domain[1] - initialState.domain[0]));
-
-    // To correctly apply the initial state, we actually want the topZoom behavior to reflect the initial domain.
-    // This is usually achieved by setting the initial transform such that event.transform.rescaleX(initialScale).domain() IS state.domain.
-    // Let initialX be a scale with domain [0, width] (pixel space).
-    // Then topXScale domain is state.domain.
-    // topZoom.transform(topSvg, d3.zoomIdentity) followed by updateViews should work
-    // if topXScale is correctly initialized with state.domain.
-
-    topSvg.call(topZoom.transform, d3.zoomIdentity); // This sets the initial transform for top view.
-    updateViews(); // Draw everything based on initial state.
-
-    // Responsive resize
-    window.addEventListener('resize', () => {
-        initializeNumberlines(); // Re-initialize scales, axes, brushes with new width
-        // Restore zoom/brush states programmatically
-        topSvg.call(topZoom.transform, topZoom.scaleTo(topSvg, state.detailZoom.top ? state.detailZoom.top.k : 1)); // Approximation or need to store top transform
-
-        // More robust resize:
-        // 1. Re-initialize (calculates new width, re-creates scales with old domains)
-        // 2. Re-apply current zoom transforms to all SVGs
-        // 3. Call updateViews()
-
-        // For a simpler resize, just re-initialize and update based on current state:
-        // (This might lose current zoom levels if not handled carefully, but state holds numerical domains)
-
-        // Re-initialize with new width
-        const availableWidth = topSvg.node().getBoundingClientRect().width;
-        const width = availableWidth - margin.left - margin.right;
-
-        topXScale.range([0, width]);
-        decimalXScale.range([0, width]);
-        fractionXScale.range([0, width]);
-
-        // Re-apply brush extent and zoom transforms
-        topBrush.extent([[0, 0], [width, height - margin.top - margin.bottom - 10]]);
-        topBrushGroup.call(topBrush); // Re-attach brush
-
-        // Re-apply zoom transforms (important for detail views)
-        topSvg.call(topZoom.transform, d3.zoomTransform(topSvg.node())); // Keep current zoom
-        decimalSvg.call(decimalZoom.transform, state.detailZoom.decimals);
-        fractionSvg.call(fractionZoom.transform, state.detailZoom.fractions);
-
-        updateViews();
+    // --- Reset Button ---
+    document.getElementById('resetButton').addEventListener('click', () => {
+        state = JSON.parse(JSON.stringify(initialState));
+        // Reset zoom transform. This will trigger 'zoomed' event which calls renderAll.
+        svgTop.call(zoom.transform, d3.zoomIdentity);
     });
+
+    // --- Initial Render ---
+    // Initialize brush component AFTER xTop domain might be set by initial zoom call.
+    // gBrush.call(brush); // Already called when gBrush was defined for zoom.filter
+
+    svgTop.call(zoom.transform, d3.zoomIdentity);
 });

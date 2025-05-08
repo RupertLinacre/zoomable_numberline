@@ -1,79 +1,72 @@
-html, body {
-    margin: 0;
-    padding: 0;
-    width: 100%;
-    height: 100%;
-    font-family: Arial, sans-serif;
-    background-color: #f0f0f0;
-    overflow: hidden; /* Prevent scrollbars from brief full-screen flash */
-}
-
-.app-container {
+body {
     display: flex;
     flex-direction: column;
-    width: 100%;
-    height: 100%;
-    padding: 20px;
-    box-sizing: border-box;
+    height: 100vh;
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background-color: #f4f7f6; /* Gentle background */
+    color: #333;
 }
 
-.controls {
-    margin-bottom: 15px;
-    text-align: center;
+.number-line-container {
+    flex-shrink: 0; /* Prevent shrinking */
+    height: 100px;
+    padding: 10px 20px; /* Padding around SVGs, more on sides */
+    box-sizing: border-box;
+    background-color: #ffffff; /* White background for bands */
+    border-bottom: 1px solid #e0e0e0; /* Softer separator */
+}
+
+.number-line-container svg {
+    width: 100%;
+    height: 100%; /* SVG internal height is 100px - 2*padding = 80px effectively for drawing */
+    display: block; /* Important for consistent layout */
 }
 
 #resetButton {
-    padding: 8px 15px;
+    display: block; /* To allow margin auto for centering */
+    margin: 20px auto;
+    padding: 12px 25px;
     font-size: 16px;
-    cursor: pointer;
-    background-color: #4CAF50;
-    color: white;
+    color: #fff;
+    background-color: #5c9aff; /* Gentle blue */
     border: none;
-    border-radius: 4px;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
 }
 
 #resetButton:hover {
-    background-color: #45a049;
+    background-color: #4a88e8; /* Slightly darker blue on hover */
 }
 
-.numberline-container {
-    width: 100%;
-    height: 100px; /* Fixed height as per requirements */
-    margin-bottom: 15px; /* Separation between numberlines */
-    background-color: #fff;
-    border: 1px solid #ccc;
-    box-sizing: border-box;
-}
-
-.numberline-container svg {
-    display: block; /* Removes extra space below SVG */
-    width: 100%;
-    height: 100%;
-}
-
-/* D3 Brush Styles */
+/* D3 specific styles */
 .brush .selection {
-    fill: #77c5e8;
+    fill: #72bcd4; /* Softer blue for brush */
     fill-opacity: 0.3;
-    stroke: #007bff;
+    stroke: #5c9aff;
     stroke-width: 1px;
 }
 
-.brush .handle {
-    fill: #555;
-    stroke: #333;
-    stroke-width: 1px;
+.brush .handle { /* Make handles a bit more visible if needed */
+    fill: #ddd;
+    stroke: #999;
 }
 
-/* Axis styles */
 .axis path,
 .axis line {
     fill: none;
-    stroke: #333;
+    stroke: #888; /* Softer axis/tick lines */
     shape-rendering: crispEdges;
 }
 
 .axis text {
-    font-size: 12px;
-    fill: #333;
+    fill: #555; /* Softer text color */
+    font-size: 11px; /* Slightly larger for readability */
+    user-select: none; /* Prevent text selection during interactions */
+}
+
+/* Specific styling for fraction labels if they get too dense */
+#fraction-detail-svg .axis text {
+    font-size: 10px;
 }
