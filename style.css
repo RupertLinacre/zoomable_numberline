@@ -10,8 +10,29 @@ body, html {
 
 #chart-container {
     width: 100%;
-    height: calc(100% - 50px); /* Account for button and some breathing room */
-    padding-top: 10px; /* Padding above the SVG */
+    /* 3 sections * 200px + 2 paddings * 60px (from script.js) + top/bottom margins (approx 20+30) + button allowance */
+    /* Let's set a fixed height for the SVG area and manage padding within JS/SVG attributes */
+    /* Or, more simply, ensure the SVG itself has enough height. */
+    /* The script calculates sectionHeight based on usableHeight. We need to reverse this. */
+    /* If each section is 200px, total for 3 sections = 600px. */
+    /* Padding between sections (sectionPadding in JS) is 60px. So 2 * 60 = 120px. */
+    /* SVG top/bottom margins (margin.top, margin.bottom in JS) are 20px, 30px. */
+    /* Total height needed for SVG content: 600 + 120 + 20 + 30 = 770px */
+    /* Plus some for the button and overall page padding. */
+    /* Let's make the container itself tall enough. */
+    height: calc(100vh - 40px); /* Make it almost full viewport height, leaving space for button if absolutely positioned */
+    padding-top: 10px;
+}
+
+#numberlines-svg {
+    width: 100%;
+    /* Height will be set by viewBox in JS, but good to ensure it has space */
+    /* The JS will set viewBox height to fullHeight, which is derived from chart-container clientHeight */
+    /* So, chart-container needs to be tall enough. */
+    /* If each numberline is 200px, and there are 3, plus padding, this will be handled by JS viewBox. */
+    /* The key is that setupDimensions in JS will now use a fixed sectionHeight. */
+    height: 100%; /* Fill the chart-container */
+    display: block;
 }
 
 #numberlines-svg {
@@ -38,7 +59,7 @@ body, html {
     fill: steelblue;
     fill-opacity: 0.3;
     stroke: steelblue;
-    stroke-width: 1px;
+    stroke-width: 2px; /* Changed from 1px to 2px */
 }
 
 .brush .handle {

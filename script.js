@@ -15,19 +15,21 @@ document.addEventListener('DOMContentLoaded', function () {
 
     const margin = { top: 20, right: 50, bottom: 30, left: 50 };
     const sectionPadding = 60; // Vertical padding between numberlines
+    const fixedSectionHeight = 200; // Each numberline area is 200px tall
 
     let fullWidth, fullHeight;
-    let usableWidth, usableHeight;
-    let sectionHeight;
+    let usableWidth; // usableHeight is effectively fixedSectionHeight per section
+    // let sectionHeight; // This will now be fixedSectionHeight
 
     function setupDimensions() {
         const container = document.getElementById('chart-container');
         fullWidth = container.clientWidth;
-        fullHeight = container.clientHeight;
+        // Calculate fullHeight based on fixed section heights and paddings
+        // This ensures the SVG viewBox is sized correctly for the content.
+        fullHeight = (fixedSectionHeight * 3) + (sectionPadding * 2) + margin.top + margin.bottom;
 
         usableWidth = fullWidth - margin.left - margin.right;
-        usableHeight = fullHeight - margin.top - margin.bottom - (2 * sectionPadding);
-        sectionHeight = usableHeight / 3;
+        // sectionHeight is now globally fixedSectionHeight
     }
 
     // Greatest Common Divisor function
@@ -41,14 +43,32 @@ document.addEventListener('DOMContentLoaded', function () {
         return d.toFixed(1).replace(/\.0$/, ''); // Keep one decimal, remove trailing .0
     }
 
-    function formatFractionTick(d) {
+    // Enhanced formatFractionTick that considers the domain span for appropriate denominators
+    function formatFractionTick(d, domainSpan) {
         if (d === 0) return "0";
         if (Number.isInteger(d)) return d.toString();
 
         const tolerance = 1e-5;
-        const commonDenominators = [2, 4, 3, 5, 8, 10, 16]; // Common denominators for kids
+        let commonDenominators;
+
+        // Adjust denominators based on the visible domain span
+        if (domainSpan <= 1) { // Very zoomed in, e.g. showing 0 to 1
+            commonDenominators = [2, 4, 8, 16, 3, 6, 12, 5, 10]; // Show finer fractions
+        } else if (domainSpan <= 5) { // Zoomed in, e.g., 0 to 5
+            commonDenominators = [2, 3, 4, 5, 6, 8, 10];
+        } else if (domainSpan <= 20) { // Medium zoom
+            commonDenominators = [2, 3, 4, 5, 6, 8];
+        } else if (domainSpan <= 50) { // Slightly zoomed out
+            commonDenominators = [2, 3, 4, 5];
+        } else { // Zoomed out (large span)
+            commonDenominators = [2, 4]; // Only show halves, quarters for very wide views
+        }
 
         for (const den of commonDenominators) {
+            // Ensure we don't create overly complex fractions for the given denominator
+            // e.g., if den is 16, but the number is 0.5, prefer 1/2 over 8/16.
+            // The gcd simplification handles this, but this logic helps select appropriate denominators.
+
             if (Math.abs(d * den - Math.round(d * den)) < tolerance) {
                 let num = Math.round(d * den);
                 const commonDivisor = gcd(num, den);
@@ -92,8 +112,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
         // Create main groups for each numberline, translated vertically
         gTop = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
-        gMid = svg.append("g").attr("transform", `translate(${margin.left},${margin.top + sectionHeight + sectionPadding})`);
-        gBot = svg.append("g").attr("transform", `translate(${margin.left},${margin.top + 2 * (sectionHeight + sectionPadding)})`);
+        gMid = svg.append("g").attr("transform", `translate(${margin.left},${margin.top + fixedSectionHeight + sectionPadding})`);
+        gBot = svg.append("g").attr("transform", `translate(${margin.left},${margin.top + 2 * (fixedSectionHeight + sectionPadding)})`);
 
         // Define scales (x-position)
         xTop = d3.scaleLinear().domain(initialDomain).range([0, usableWidth]);
@@ -106,18 +126,22 @@ document.addEventListener('DOMContentLoaded', function () {
         xBotInitial = xBot.copy();
 
         // Define axes
-        xAxisTop = d3.axisBottom(xTop).ticks(10).tickFormat(formatDecimalTick);
-        xAxisMid = d3.axisBottom(xMid).ticks(10).tickFormat(formatDecimalTick);
-        xAxisBot = d3.axisBottom(xBot).ticks(10).tickFormat(formatFractionTick);
+        xAxisTop = d3.axisBottom(xTop).ticks(10).tickFormat(formatDecimalTick); // Keep top at 10 for overview
+        xAxisMid = d3.axisBottom(xMid).ticks(20).tickFormat(formatDecimalTick); // More ticks for focus
+
+        // xAxisBot will be configured dynamically based on zoom level for its tickFormat
+        // Initial setup with a default formatter (can be the widest view)
+        const initialBotDomainSpan = xBot.domain()[1] - xBot.domain()[0];
+        xAxisBot = d3.axisBottom(xBot).ticks(20).tickFormat(d => formatFractionTick(d, initialBotDomainSpan));
 
         // Draw axes
-        gTop.append("g").attr("class", "axis axis-top").attr("transform", `translate(0, ${sectionHeight / 2})`).call(xAxisTop);
-        gMid.append("g").attr("class", "axis axis-mid").attr("transform", `translate(0, ${sectionHeight / 2})`).call(xAxisMid);
-        gBot.append("g").attr("class", "axis axis-bot").attr("transform", `translate(0, ${sectionHeight / 2})`).call(xAxisBot);
+        gTop.append("g").attr("class", "axis axis-top").attr("transform", `translate(0, ${fixedSectionHeight / 2})`).call(xAxisTop);
+        gMid.append("g").attr("class", "axis axis-mid").attr("transform", `translate(0, ${fixedSectionHeight / 2})`).call(xAxisMid);
+        gBot.append("g").attr("class", "axis axis-bot").attr("transform", `translate(0, ${fixedSectionHeight / 2})`).call(xAxisBot);
 
         // --- Brush for Top Numberline ---
         brushBehavior = d3.brushX()
-            .extent([[0, 0], [usableWidth, sectionHeight]]) // Brushable area
+            .extent([[0, 0], [usableWidth, fixedSectionHeight]]) // Use fixedSectionHeight
             .on("brush end", brushed);
 
         gBrush = gTop.append("g").attr("class", "brush").call(brushBehavior);
@@ -128,42 +152,46 @@ document.addEventListener('DOMContentLoaded', function () {
         // --- Zoom Behaviors ---
         // Zoom for Top Numberline (Mousewheel only)
         zoomTopBehavior = d3.zoom()
-            .scaleExtent([0.1, 20]) // Min/max zoom level
-            .translateExtent([[-Infinity, 0], [Infinity, sectionHeight]]) // Pan extent
+            .scaleExtent([0.1, 20]) // Min/max zoom level for top
+            .translateExtent([[-Infinity, 0], [Infinity, fixedSectionHeight]]) // Pan extent
             .filter(event => event.type === 'wheel') // Only mousewheel zoom
             .on("zoom", zoomedTop);
 
         gTop.append("rect")
             .attr("class", "numberline-background")
             .attr("width", usableWidth)
-            .attr("height", sectionHeight)
+            .attr("height", fixedSectionHeight) // Use fixedSectionHeight
             .style("cursor", "ns-resize") // Indicates vertical scroll/zoom
             .call(zoomTopBehavior);
 
 
         // Zoom for Middle Numberline (Mousewheel and Drag)
+        // Limit zoom-in: max scale of 20 means domain can be 1/20th of initial, e.g. 10 units wide if initial is 200.
+        // To prevent infinite zoom-in, the minimum domain width should be something sensible, e.g. 1 unit.
+        // If initialDomain width is 200 (-100 to 100), max zoom factor k = 200 / 1 = 200.
+        // Let's set max zoom to 50 for now, meaning smallest visible range is 200/50 = 4 units.
         zoomMidBehavior = d3.zoom()
-            .scaleExtent([0.01, 100])
-            .translateExtent([[-Infinity, 0], [Infinity, sectionHeight]])
+            .scaleExtent([0.01, 50]) // Min zoom out 0.01, Max zoom in 50
+            .translateExtent([[-Infinity, 0], [Infinity, fixedSectionHeight]]) // Use fixedSectionHeight
             .on("zoom", zoomedMid);
 
         gMid.append("rect")
             .attr("class", "numberline-background zoom-rect-mid")
             .attr("width", usableWidth)
-            .attr("height", sectionHeight)
+            .attr("height", fixedSectionHeight) // Use fixedSectionHeight
             .style("cursor", "move")
             .call(zoomMidBehavior);
 
         // Zoom for Bottom Numberline (Mousewheel and Drag)
         zoomBotBehavior = d3.zoom()
-            .scaleExtent([0.01, 100])
-            .translateExtent([[-Infinity, 0], [Infinity, sectionHeight]])
+            .scaleExtent([0.01, 50]) // Min zoom out 0.01, Max zoom in 50
+            .translateExtent([[-Infinity, 0], [Infinity, fixedSectionHeight]]) // Use fixedSectionHeight
             .on("zoom", zoomedBot);
 
         gBot.append("rect")
             .attr("class", "numberline-background zoom-rect-bot")
             .attr("width", usableWidth)
-            .attr("height", sectionHeight)
+            .attr("height", fixedSectionHeight) // Use fixedSectionHeight
             .style("cursor", "move")
             .call(zoomBotBehavior);
 
@@ -190,6 +218,10 @@ document.addEventListener('DOMContentLoaded', function () {
             // Direct update of domains and axes after transform call (zoom handlers will also run)
             xMid.domain(newFocusDomain);
             xBot.domain(newFocusDomain);
+
+            const currentBotDomainSpan = xBot.domain()[1] - xBot.domain()[0];
+            xAxisBot.tickFormat(d => formatFractionTick(d, currentBotDomainSpan));
+
             gMid.select(".axis-mid").call(xAxisMid);
             gBot.select(".axis-bot").call(xAxisBot);
 
@@ -204,6 +236,10 @@ document.addEventListener('DOMContentLoaded', function () {
 
             xMid.domain(topDomain);
             xBot.domain(topDomain);
+
+            const currentBotDomainSpan = xBot.domain()[1] - xBot.domain()[0];
+            xAxisBot.tickFormat(d => formatFractionTick(d, currentBotDomainSpan));
+
             gMid.select(".axis-mid").call(xAxisMid);
             gBot.select(".axis-bot").call(xAxisBot);
         }
@@ -234,6 +270,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
         xMid.domain(newFocusDomain);
         xBot.domain(newFocusDomain);
+
+        const currentBotDomainSpan = xBot.domain()[1] - xBot.domain()[0];
+        xAxisBot.tickFormat(d => formatFractionTick(d, currentBotDomainSpan));
 
         gMid.select(".axis-mid").call(xAxisMid);
         gBot.select(".axis-bot").call(xAxisBot);
@@ -284,6 +323,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
         gTop.select(".axis-top").call(xAxisTop);
         gMid.select(".axis-mid").call(xAxisMid);
+
+        const resetBotDomainSpan = xBot.domain()[1] - xBot.domain()[0]; // Should be initialDomain width
+        xAxisBot.tickFormat(d => formatFractionTick(d, resetBotDomainSpan));
         gBot.select(".axis-bot").call(xAxisBot);
 
         // Reset zoom transforms on the elements
