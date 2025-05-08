@@ -65,7 +65,7 @@ body, html {
 .brush .handle {
     fill: #555;
     stroke: #333;
-    stroke-width: 1px;
+    stroke-width: 2px; /* Changed from 1px to 2px */
 }
 
 #resetButton {

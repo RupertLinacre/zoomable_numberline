@@ -15,7 +15,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     const margin = { top: 20, right: 50, bottom: 30, left: 50 };
     const sectionPadding = 60; // Vertical padding between numberlines
-    const fixedSectionHeight = 200; // Each numberline area is 200px tall
+    const fixedSectionHeight = 100; // Each numberline area is 100px tall
 
     let fullWidth, fullHeight;
     let usableWidth; // usableHeight is effectively fixedSectionHeight per section
@@ -38,9 +38,30 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // Tick formatting functions
-    function formatDecimalTick(d) {
+    function formatDecimalTick(d, domainSpan) {
         if (Number.isInteger(d)) return d.toString();
-        return d.toFixed(1).replace(/\.0$/, ''); // Keep one decimal, remove trailing .0
+
+        let precision;
+        if (domainSpan <= 0.0001) { // e.g., 0.00001 to 0.00002
+            precision = 5;
+        } else if (domainSpan <= 0.001) { // e.g., 0.0001 to 0.0002
+            precision = 4;
+        } else if (domainSpan <= 0.01) { // e.g., 0.001 to 0.002
+            precision = 3;
+        } else if (domainSpan <= 0.1) { // e.g., 0.01 to 0.02
+            precision = 2;
+        } else if (domainSpan <= 10) { // e.g., 0.1 to 0.2 or 1 to 2
+            precision = 1;
+        } else { // Larger spans
+            precision = 0;
+        }
+
+        // Use toFixed for precision, then remove unnecessary trailing zeros.
+        let s = d.toFixed(precision);
+        if (s.includes('.')) {
+            s = s.replace(/\.?0+$/, ''); // Remove trailing zeros and potentially the decimal point if it becomes trailing
+        }
+        return s === "" ? "0" : s; // Handle case where everything after decimal is removed for numbers like 0.00
     }
 
     // Enhanced formatFractionTick that considers the domain span for appropriate denominators
@@ -126,11 +147,13 @@ document.addEventListener('DOMContentLoaded', function () {
         xBotInitial = xBot.copy();
 
         // Define axes
-        xAxisTop = d3.axisBottom(xTop).ticks(10).tickFormat(formatDecimalTick); // Keep top at 10 for overview
-        xAxisMid = d3.axisBottom(xMid).ticks(20).tickFormat(formatDecimalTick); // More ticks for focus
+        // Axes will be configured dynamically based on zoom level for their tickFormat
+        const initialTopDomainSpan = xTop.domain()[1] - xTop.domain()[0];
+        xAxisTop = d3.axisBottom(xTop).ticks(10).tickFormat(d => formatDecimalTick(d, initialTopDomainSpan));
 
-        // xAxisBot will be configured dynamically based on zoom level for its tickFormat
-        // Initial setup with a default formatter (can be the widest view)
+        const initialMidDomainSpan = xMid.domain()[1] - xMid.domain()[0];
+        xAxisMid = d3.axisBottom(xMid).ticks(20).tickFormat(d => formatDecimalTick(d, initialMidDomainSpan));
+
         const initialBotDomainSpan = xBot.domain()[1] - xBot.domain()[0];
         xAxisBot = d3.axisBottom(xBot).ticks(20).tickFormat(d => formatFractionTick(d, initialBotDomainSpan));
 
@@ -170,8 +193,9 @@ document.addEventListener('DOMContentLoaded', function () {
         // To prevent infinite zoom-in, the minimum domain width should be something sensible, e.g. 1 unit.
         // If initialDomain width is 200 (-100 to 100), max zoom factor k = 200 / 1 = 200.
         // Let's set max zoom to 50 for now, meaning smallest visible range is 200/50 = 4 units.
+        // Updated to allow much greater zoom-in, effectively "infinite"
         zoomMidBehavior = d3.zoom()
-            .scaleExtent([0.01, 50]) // Min zoom out 0.01, Max zoom in 50
+            .scaleExtent([0.01, 2000000]) // Min zoom out 0.01, Max zoom in 2,000,000
             .translateExtent([[-Infinity, 0], [Infinity, fixedSectionHeight]]) // Use fixedSectionHeight
             .on("zoom", zoomedMid);
 
@@ -183,8 +207,9 @@ document.addEventListener('DOMContentLoaded', function () {
             .call(zoomMidBehavior);
 
         // Zoom for Bottom Numberline (Mousewheel and Drag)
+        // Updated to allow much greater zoom-in
         zoomBotBehavior = d3.zoom()
-            .scaleExtent([0.01, 50]) // Min zoom out 0.01, Max zoom in 50
+            .scaleExtent([0.01, 2000000]) // Min zoom out 0.01, Max zoom in 2,000,000
             .translateExtent([[-Infinity, 0], [Infinity, fixedSectionHeight]]) // Use fixedSectionHeight
             .on("zoom", zoomedBot);
 
@@ -219,6 +244,9 @@ document.addEventListener('DOMContentLoaded', function () {
             xMid.domain(newFocusDomain);
             xBot.domain(newFocusDomain);
 
+            const currentMidDomainSpan = xMid.domain()[1] - xMid.domain()[0];
+            xAxisMid.tickFormat(d => formatDecimalTick(d, currentMidDomainSpan));
+
             const currentBotDomainSpan = xBot.domain()[1] - xBot.domain()[0];
             xAxisBot.tickFormat(d => formatFractionTick(d, currentBotDomainSpan));
 
@@ -226,7 +254,7 @@ document.addEventListener('DOMContentLoaded', function () {
             gBot.select(".axis-bot").call(xAxisBot);
 
         } else { // Brush cleared (e.g., double click) - reset focus to top's current view
-            const topDomain = xTop.domain();
+            const topDomain = xTop.domain(); // This is the current xTop domain after its own zoom
             currentFocusTransform = d3.zoomIdentity
                 .scale(usableWidth / (xTopInitial(topDomain[1]) - xTopInitial(topDomain[0])))
                 .translate(-xTopInitial(topDomain[0]), 0);
@@ -234,8 +262,11 @@ document.addEventListener('DOMContentLoaded', function () {
             gMid.select(".zoom-rect-mid").call(zoomMidBehavior.transform, currentFocusTransform);
             gBot.select(".zoom-rect-bot").call(zoomBotBehavior.transform, currentFocusTransform);
 
-            xMid.domain(topDomain);
+            xMid.domain(topDomain); // Focus lines adopt top's current view
             xBot.domain(topDomain);
+
+            const currentMidDomainSpan = xMid.domain()[1] - xMid.domain()[0];
+            xAxisMid.tickFormat(d => formatDecimalTick(d, currentMidDomainSpan));
 
             const currentBotDomainSpan = xBot.domain()[1] - xBot.domain()[0];
             xAxisBot.tickFormat(d => formatFractionTick(d, currentBotDomainSpan));
@@ -249,7 +280,11 @@ document.addEventListener('DOMContentLoaded', function () {
         if (!event.sourceEvent) return; // Ignore programmatic zoom
         currentTopTransform = event.transform;
         xTop.domain(currentTopTransform.rescaleX(xTopInitial).domain());
+
+        const currentTopDomainSpan = xTop.domain()[1] - xTop.domain()[0];
+        xAxisTop.tickFormat(d => formatDecimalTick(d, currentTopDomainSpan));
         gTop.select(".axis-top").call(xAxisTop);
+
         updateBrushFromFocusDomain(xMid.domain()); // Update brush based on focus lines' current domain
     }
 
@@ -270,6 +305,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
         xMid.domain(newFocusDomain);
         xBot.domain(newFocusDomain);
+
+        const currentMidDomainSpan = xMid.domain()[1] - xMid.domain()[0];
+        xAxisMid.tickFormat(d => formatDecimalTick(d, currentMidDomainSpan));
 
         const currentBotDomainSpan = xBot.domain()[1] - xBot.domain()[0];
         xAxisBot.tickFormat(d => formatFractionTick(d, currentBotDomainSpan));
@@ -321,10 +359,15 @@ document.addEventListener('DOMContentLoaded', function () {
         xBotInitial.domain(initialDomain);
 
 
+        const resetTopDomainSpan = xTop.domain()[1] - xTop.domain()[0];
+        xAxisTop.tickFormat(d => formatDecimalTick(d, resetTopDomainSpan));
         gTop.select(".axis-top").call(xAxisTop);
+
+        const resetMidDomainSpan = xMid.domain()[1] - xMid.domain()[0];
+        xAxisMid.tickFormat(d => formatDecimalTick(d, resetMidDomainSpan));
         gMid.select(".axis-mid").call(xAxisMid);
 
-        const resetBotDomainSpan = xBot.domain()[1] - xBot.domain()[0]; // Should be initialDomain width
+        const resetBotDomainSpan = xBot.domain()[1] - xBot.domain()[0];
         xAxisBot.tickFormat(d => formatFractionTick(d, resetBotDomainSpan));
         gBot.select(".axis-bot").call(xAxisBot);
 
