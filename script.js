@@ -1,343 +1,317 @@
-// Wait for the DOM to be fully loaded
 document.addEventListener('DOMContentLoaded', function () {
-    // Initial configuration
-    const config = {
-        initialRange: [-100, 100],
-        padding: { top: 20, right: 40, bottom: 20, left: 40 }
-    };
+    const initialDomain = [-100, 100];
 
-    // Get container dimensions
-    const getContainerDimensions = (selector) => {
-        const container = document.querySelector(selector);
-        return {
-            width: container.clientWidth,
-            height: container.clientHeight
-        };
-    };
+    let svg, gTop, gMid, gBot, gBrush;
+    let xTop, xMid, xBot;
+    let xAxisTop, xAxisMid, xAxisBot;
+    let brushBehavior, zoomTopBehavior, zoomMidBehavior, zoomBotBehavior;
 
-    // Create SVG elements for each numberline
-    const createSvg = (selector) => {
-        const { width, height } = getContainerDimensions(selector);
-        return d3.select(selector)
-            .append('svg')
-            .attr('width', width)
-            .attr('height', height)
-            .append('g')
-            .attr('transform', `translate(${config.padding.left},${config.padding.top})`);
-    };
+    let currentTopTransform = d3.zoomIdentity;
+    let currentFocusTransform = d3.zoomIdentity;
 
-    // Create SVGs for each numberline
-    const topSvg = createSvg('#top-numberline .numberline');
-    const middleSvg = createSvg('#middle-numberline .numberline');
-    const bottomSvg = createSvg('#bottom-numberline .numberline');
+    // Store initial scales (domain: initialDomain, range: calculated based on width)
+    // These are used as the basis for zoom transforms (event.transform.rescaleX(xInitial))
+    let xTopInitial, xMidInitial, xBotInitial;
 
-    // Get effective width and height (accounting for padding)
-    const getEffectiveDimensions = (selector) => {
-        const { width, height } = getContainerDimensions(selector);
-        return {
-            width: width - config.padding.left - config.padding.right,
-            height: height - config.padding.top - config.padding.bottom
-        };
-    };
+    const margin = { top: 20, right: 50, bottom: 30, left: 50 };
+    const sectionPadding = 60; // Vertical padding between numberlines
 
-    // Create scales for each numberline
-    const createXScale = (selector) => {
-        const { width } = getEffectiveDimensions(selector);
-        return d3.scaleLinear()
-            .domain(config.initialRange)
-            .range([0, width]);
-    };
+    let fullWidth, fullHeight;
+    let usableWidth, usableHeight;
+    let sectionHeight;
 
-    // Create scales
-    const topXScale = createXScale('#top-numberline .numberline');
-    const middleXScale = createXScale('#middle-numberline .numberline');
-    const bottomXScale = createXScale('#bottom-numberline .numberline');
+    function setupDimensions() {
+        const container = document.getElementById('chart-container');
+        fullWidth = container.clientWidth;
+        fullHeight = container.clientHeight;
 
-    // Function to convert decimal to fraction string
-    const decimalToFraction = (decimal) => {
-        // Handle special cases
-        if (decimal === 0) return "0";
-        if (decimal === 1) return "1";
-        if (decimal === -1) return "-1";
+        usableWidth = fullWidth - margin.left - margin.right;
+        usableHeight = fullHeight - margin.top - margin.bottom - (2 * sectionPadding);
+        sectionHeight = usableHeight / 3;
+    }
 
-        // Handle integers
-        if (Number.isInteger(decimal)) return decimal.toString();
+    // Greatest Common Divisor function
+    function gcd(a, b) {
+        return b ? gcd(b, a % b) : Math.abs(a);
+    }
 
-        // For simple fractions, use predefined mappings
-        const commonFractions = {
-            0.25: "1/4", 0.5: "1/2", 0.75: "3/4",
-            0.2: "1/5", 0.4: "2/5", 0.6: "3/5", 0.8: "4/5",
-            0.333: "1/3", 0.667: "2/3",
-            0.125: "1/8", 0.375: "3/8", 0.625: "5/8", 0.875: "7/8"
-        };
+    // Tick formatting functions
+    function formatDecimalTick(d) {
+        if (Number.isInteger(d)) return d.toString();
+        return d.toFixed(1).replace(/\.0$/, ''); // Keep one decimal, remove trailing .0
+    }
 
-        // Check for negative values
-        const isNegative = decimal < 0;
-        const absDecimal = Math.abs(decimal);
+    function formatFractionTick(d) {
+        if (d === 0) return "0";
+        if (Number.isInteger(d)) return d.toString();
 
-        // Check if it's a common fraction
-        for (const [key, value] of Object.entries(commonFractions)) {
-            if (Math.abs(absDecimal - parseFloat(key)) < 0.001) {
-                return isNegative ? "-" + value : value;
+        const tolerance = 1e-5;
+        const commonDenominators = [2, 4, 3, 5, 8, 10, 16]; // Common denominators for kids
+
+        for (const den of commonDenominators) {
+            if (Math.abs(d * den - Math.round(d * den)) < tolerance) {
+                let num = Math.round(d * den);
+                const commonDivisor = gcd(num, den);
+                const simplifiedNum = num / commonDivisor;
+                const simplifiedDen = den / commonDivisor;
+
+                if (simplifiedDen === 1) return simplifiedNum.toString();
+                return `${simplifiedNum}/${simplifiedDen}`;
             }
         }
+        // Fallback for less common fractions (e.g., 1/7) or if precision is an issue
+        // Continued fraction method (simplified)
+        let h1 = 1, h2 = 0, k1 = 0, k2 = 1;
+        let b = d;
+        do {
+            let a = Math.floor(b);
+            let aux = h1; h1 = a * h1 + h2; h2 = aux;
+            aux = k1; k1 = a * k1 + k2; k2 = aux;
+            b = 1 / (b - a);
+        } while (Math.abs(d - h1 / k1) > d * tolerance && k1 < 30); // Limit denominator for simplicity
 
-        // For other values, find the closest simple fraction
-        // Extract the integer part
-        const intPart = Math.floor(absDecimal);
-        const fracPart = absDecimal - intPart;
+        if (k1 === 0 || h1 / k1 === d || k1 > 30) return d.toFixed(1).replace(/\.0$/, ''); // Fallback to decimal
+        if (k1 === 1) return h1.toString();
+        if (h1 % k1 === 0) return (h1 / k1).toString();
 
-        if (fracPart < 0.001) {
-            return isNegative ? "-" + intPart : intPart.toString();
-        }
+        const finalNum = h1;
+        const finalDen = k1;
+        const commonDiv = gcd(finalNum, finalDen);
 
-        // Find closest simple fraction for the fractional part
-        let closestDiff = 1;
-        let closestFraction = "";
+        return `${finalNum / commonDiv}/${finalDen / commonDiv}`;
+    }
 
-        for (const [key, value] of Object.entries(commonFractions)) {
-            const diff = Math.abs(fracPart - parseFloat(key));
-            if (diff < closestDiff) {
-                closestDiff = diff;
-                closestFraction = value;
-            }
-        }
 
-        // Format the result
-        if (intPart === 0) {
-            return isNegative ? "-" + closestFraction : closestFraction;
-        } else {
-            return (isNegative ? "-" : "") + intPart + " " + closestFraction;
-        }
-    };
+    function init() {
+        setupDimensions();
 
-    // Create axes with appropriate tick formats
-    const createAxis = (scale, tickFormat) => {
-        return d3.axisBottom(scale)
-            .tickFormat(tickFormat);
-    };
+        svg = d3.select("#numberlines-svg")
+            .attr("viewBox", `0 0 ${fullWidth} ${fullHeight}`);
 
-    // Create axes
-    const topAxis = createAxis(topXScale, d3.format(",.1f"));
-    const middleAxis = createAxis(middleXScale, d3.format(",.1f"));
-    const bottomAxis = createAxis(bottomXScale, decimalToFraction);
+        svg.selectAll("*").remove(); // Clear previous elements if re-init
 
-    // Append axes to SVGs
-    const appendAxis = (svg, axis, selector) => {
-        const { height } = getEffectiveDimensions(selector);
-        svg.append('g')
-            .attr('class', 'axis')
-            .attr('transform', `translate(0,${height / 2})`)
-            .call(axis);
-    };
+        // Create main groups for each numberline, translated vertically
+        gTop = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+        gMid = svg.append("g").attr("transform", `translate(${margin.left},${margin.top + sectionHeight + sectionPadding})`);
+        gBot = svg.append("g").attr("transform", `translate(${margin.left},${margin.top + 2 * (sectionHeight + sectionPadding)})`);
 
-    // Append axes
-    appendAxis(topSvg, topAxis, '#top-numberline .numberline');
-    appendAxis(middleSvg, middleAxis, '#middle-numberline .numberline');
-    appendAxis(bottomSvg, bottomAxis, '#bottom-numberline .numberline');
+        // Define scales (x-position)
+        xTop = d3.scaleLinear().domain(initialDomain).range([0, usableWidth]);
+        xMid = d3.scaleLinear().domain(initialDomain).range([0, usableWidth]);
+        xBot = d3.scaleLinear().domain(initialDomain).range([0, usableWidth]);
 
-    // Draw the numberline
-    const drawNumberline = (svg, selector) => {
-        const { width, height } = getEffectiveDimensions(selector);
-        svg.append('line')
-            .attr('x1', 0)
-            .attr('y1', height / 2)
-            .attr('x2', width)
-            .attr('y2', height / 2)
-            .attr('stroke', 'black')
-            .attr('stroke-width', 2);
-    };
+        // Store initial scales for zoom calculations
+        xTopInitial = xTop.copy();
+        xMidInitial = xMid.copy();
+        xBotInitial = xBot.copy();
 
-    // Draw numberlines
-    drawNumberline(topSvg, '#top-numberline .numberline');
-    drawNumberline(middleSvg, '#middle-numberline .numberline');
-    drawNumberline(bottomSvg, '#bottom-numberline .numberline');
+        // Define axes
+        xAxisTop = d3.axisBottom(xTop).ticks(10).tickFormat(formatDecimalTick);
+        xAxisMid = d3.axisBottom(xMid).ticks(10).tickFormat(formatDecimalTick);
+        xAxisBot = d3.axisBottom(xBot).ticks(10).tickFormat(formatFractionTick);
 
-    // Create brush for top numberline
-    const brush = d3.brushX()
-        .extent([[0, 0], [getEffectiveDimensions('#top-numberline .numberline').width, getEffectiveDimensions('#top-numberline .numberline').height]])
-        .on('brush', brushed)
-        .on('end', brushEnded);
+        // Draw axes
+        gTop.append("g").attr("class", "axis axis-top").attr("transform", `translate(0, ${sectionHeight / 2})`).call(xAxisTop);
+        gMid.append("g").attr("class", "axis axis-mid").attr("transform", `translate(0, ${sectionHeight / 2})`).call(xAxisMid);
+        gBot.append("g").attr("class", "axis axis-bot").attr("transform", `translate(0, ${sectionHeight / 2})`).call(xAxisBot);
 
-    // Append brush to top SVG
-    const brushGroup = topSvg.append('g')
-        .attr('class', 'brush')
-        .call(brush);
+        // --- Brush for Top Numberline ---
+        brushBehavior = d3.brushX()
+            .extent([[0, 0], [usableWidth, sectionHeight]]) // Brushable area
+            .on("brush end", brushed);
 
-    // Initialize with full brush selection
-    brushGroup.call(brush.move, [0, getEffectiveDimensions('#top-numberline .numberline').width]);
+        gBrush = gTop.append("g").attr("class", "brush").call(brushBehavior);
+        // Set initial brush selection to cover the full initial domain
+        gBrush.call(brushBehavior.move, xTop.range());
 
-    // Brush event handlers
+
+        // --- Zoom Behaviors ---
+        // Zoom for Top Numberline (Mousewheel only)
+        zoomTopBehavior = d3.zoom()
+            .scaleExtent([0.1, 20]) // Min/max zoom level
+            .translateExtent([[-Infinity, 0], [Infinity, sectionHeight]]) // Pan extent
+            .filter(event => event.type === 'wheel') // Only mousewheel zoom
+            .on("zoom", zoomedTop);
+
+        gTop.append("rect")
+            .attr("class", "numberline-background")
+            .attr("width", usableWidth)
+            .attr("height", sectionHeight)
+            .style("cursor", "ns-resize") // Indicates vertical scroll/zoom
+            .call(zoomTopBehavior);
+
+
+        // Zoom for Middle Numberline (Mousewheel and Drag)
+        zoomMidBehavior = d3.zoom()
+            .scaleExtent([0.01, 100])
+            .translateExtent([[-Infinity, 0], [Infinity, sectionHeight]])
+            .on("zoom", zoomedMid);
+
+        gMid.append("rect")
+            .attr("class", "numberline-background zoom-rect-mid")
+            .attr("width", usableWidth)
+            .attr("height", sectionHeight)
+            .style("cursor", "move")
+            .call(zoomMidBehavior);
+
+        // Zoom for Bottom Numberline (Mousewheel and Drag)
+        zoomBotBehavior = d3.zoom()
+            .scaleExtent([0.01, 100])
+            .translateExtent([[-Infinity, 0], [Infinity, sectionHeight]])
+            .on("zoom", zoomedBot);
+
+        gBot.append("rect")
+            .attr("class", "numberline-background zoom-rect-bot")
+            .attr("width", usableWidth)
+            .attr("height", sectionHeight)
+            .style("cursor", "move")
+            .call(zoomBotBehavior);
+
+        // Reset button
+        d3.select("#resetButton").on("click", resetViews);
+    }
+
+    // --- Event Handlers ---
+
     function brushed(event) {
-        if (event.sourceEvent && event.sourceEvent.type === "zoom") return; // Ignore brush events from zoom
+        if (!event.sourceEvent) return; // Ignore programmatic brush events
 
-        if (event.selection) {
-            // Convert brush selection to domain values
-            const [x0, x1] = event.selection.map(topXScale.invert);
+        const selection = event.selection;
+        if (selection) {
+            const newFocusDomain = selection.map(xTop.invert);
+            currentFocusTransform = d3.zoomIdentity
+                .scale(usableWidth / (xTopInitial(newFocusDomain[1]) - xTopInitial(newFocusDomain[0])))
+                .translate(-xTopInitial(newFocusDomain[0]), 0);
 
-            // Update middle and bottom scales
-            middleXScale.domain([x0, x1]);
-            bottomXScale.domain([x0, x1]);
+            // Apply this new transform to focus lines
+            gMid.select(".zoom-rect-mid").call(zoomMidBehavior.transform, currentFocusTransform);
+            gBot.select(".zoom-rect-bot").call(zoomBotBehavior.transform, currentFocusTransform);
 
-            // Update axes
-            middleSvg.select('.axis').call(middleAxis);
-            bottomSvg.select('.axis').call(bottomAxis);
+            // Direct update of domains and axes after transform call (zoom handlers will also run)
+            xMid.domain(newFocusDomain);
+            xBot.domain(newFocusDomain);
+            gMid.select(".axis-mid").call(xAxisMid);
+            gBot.select(".axis-bot").call(xAxisBot);
+
+        } else { // Brush cleared (e.g., double click) - reset focus to top's current view
+            const topDomain = xTop.domain();
+            currentFocusTransform = d3.zoomIdentity
+                .scale(usableWidth / (xTopInitial(topDomain[1]) - xTopInitial(topDomain[0])))
+                .translate(-xTopInitial(topDomain[0]), 0);
+
+            gMid.select(".zoom-rect-mid").call(zoomMidBehavior.transform, currentFocusTransform);
+            gBot.select(".zoom-rect-bot").call(zoomBotBehavior.transform, currentFocusTransform);
+
+            xMid.domain(topDomain);
+            xBot.domain(topDomain);
+            gMid.select(".axis-mid").call(xAxisMid);
+            gBot.select(".axis-bot").call(xAxisBot);
         }
     }
 
-    function brushEnded(event) {
-        if (!event.selection) {
-            // If the brush is cleared, reset to initial range
-            brushGroup.call(brush.move, [0, getEffectiveDimensions('#top-numberline .numberline').width]);
+    function zoomedTop(event) {
+        if (!event.sourceEvent) return; // Ignore programmatic zoom
+        currentTopTransform = event.transform;
+        xTop.domain(currentTopTransform.rescaleX(xTopInitial).domain());
+        gTop.select(".axis-top").call(xAxisTop);
+        updateBrushFromFocusDomain(xMid.domain()); // Update brush based on focus lines' current domain
+    }
+
+    function zoomedMid(event) {
+        if (!event.sourceEvent) return; // Ignore programmatic zoom
+        currentFocusTransform = event.transform;
+        applyFocusZoomAndSync(zoomBotBehavior, gBot.select(".zoom-rect-bot"));
+    }
+
+    function zoomedBot(event) {
+        if (!event.sourceEvent) return; // Ignore programmatic zoom
+        currentFocusTransform = event.transform;
+        applyFocusZoomAndSync(zoomMidBehavior, gMid.select(".zoom-rect-mid"));
+    }
+
+    function applyFocusZoomAndSync(otherZoomBehavior, otherZoomRect) {
+        const newFocusDomain = currentFocusTransform.rescaleX(xMidInitial).domain(); // Use xMidInitial as reference
+
+        xMid.domain(newFocusDomain);
+        xBot.domain(newFocusDomain);
+
+        gMid.select(".axis-mid").call(xAxisMid);
+        gBot.select(".axis-bot").call(xAxisBot);
+
+        // Synchronize the other focus numberline's zoom state
+        otherZoomRect.call(otherZoomBehavior.transform, currentFocusTransform);
+
+        updateBrushFromFocusDomain(newFocusDomain);
+    }
+
+    function updateBrushFromFocusDomain(focusDomain) {
+        if (!gBrush || !xTop) return; // Not initialized yet
+
+        const selection = [
+            xTop(focusDomain[0]),
+            xTop(focusDomain[1])
+        ];
+
+        // Clamp selection to the visible range of xTop to avoid errors
+        const topRange = xTop.range();
+        const clampedSelection = [
+            Math.max(topRange[0], Math.min(topRange[1], selection[0])),
+            Math.max(topRange[0], Math.min(topRange[1], selection[1]))
+        ];
+
+        // Only move brush if selection is valid (e.g., not NaN, start < end)
+        if (clampedSelection && !isNaN(clampedSelection[0]) && !isNaN(clampedSelection[1]) && clampedSelection[1] > clampedSelection[0]) {
+            // Temporarily remove the listener to prevent feedback loop, or rely on !event.sourceEvent
+            gBrush.call(brushBehavior.move, clampedSelection);
+        } else if (clampedSelection && clampedSelection[1] <= clampedSelection[0]) {
+            // If the domain is inverted or too small, consider clearing the brush or a minimal brush
+            // For now, do nothing if selection is invalid to avoid errors
         }
     }
 
-    // Create zoom behavior for middle and bottom numberlines
-    const zoom = d3.zoom()
-        .scaleExtent([1, 100])
-        .on('zoom', zoomed);
+    function resetViews() {
+        currentTopTransform = d3.zoomIdentity;
+        currentFocusTransform = d3.zoomIdentity;
 
-    // Apply zoom to middle and bottom SVGs
-    middleSvg.call(zoom);
-    bottomSvg.call(zoom);
+        xTop.domain(initialDomain);
+        xMid.domain(initialDomain);
+        xBot.domain(initialDomain);
 
-    // Zoom event handler
-    function zoomed(event) {
-        // Get the new domain based on the zoom transform
-        const newXScale = event.transform.rescaleX(middleXScale);
-        const newDomain = newXScale.domain();
+        xTopInitial.domain(initialDomain); // ensure initial scales are also reset if they were modified
+        xMidInitial.domain(initialDomain);
+        xBotInitial.domain(initialDomain);
 
-        // Update middle and bottom scales with the new domain
-        middleXScale.domain(newDomain);
-        bottomXScale.domain(newDomain);
 
-        // Update axes
-        middleSvg.select('.axis').call(middleAxis);
-        bottomSvg.select('.axis').call(bottomAxis);
+        gTop.select(".axis-top").call(xAxisTop);
+        gMid.select(".axis-mid").call(xAxisMid);
+        gBot.select(".axis-bot").call(xAxisBot);
 
-        // Update brush on top numberline to reflect the visible portion
-        const [x0, x1] = newDomain;
-        const [brushStart, brushEnd] = [topXScale(x0), topXScale(x1)];
+        // Reset zoom transforms on the elements
+        gTop.select(".numberline-background").call(zoomTopBehavior.transform, d3.zoomIdentity);
+        gMid.select(".zoom-rect-mid").call(zoomMidBehavior.transform, d3.zoomIdentity);
+        gBot.select(".zoom-rect-bot").call(zoomBotBehavior.transform, d3.zoomIdentity);
 
-        // Only update brush if it's a user-initiated zoom
-        if (event.sourceEvent && event.sourceEvent.type !== "brush") {
-            brushGroup.call(brush.move, [brushStart, brushEnd]);
+        // Reset brush to full extent
+        if (gBrush && xTop) {
+            gBrush.call(brushBehavior.move, xTop.range());
         }
     }
 
-    // Add mousewheel zoom to top numberline
-    const topZoom = d3.zoom()
-        .scaleExtent([1, 10])
-        .on('zoom', topZoomed);
+    // Initial call
+    init();
 
-    topSvg.call(topZoom);
-
-    // Top numberline zoom handler
-    function topZoomed(event) {
-        // Ignore zoom events from brush
-        if (event.sourceEvent && event.sourceEvent.type === "brush") return;
-
-        // Get the new domain based on the zoom transform
-        const newXScale = event.transform.rescaleX(topXScale);
-        const newDomain = newXScale.domain();
-
-        // Update top scale
-        topXScale.domain(newDomain);
-
-        // Update top axis
-        topSvg.select('.axis').call(topAxis);
-
-        // Update brush extent
-        brush.extent([[0, 0], [getEffectiveDimensions('#top-numberline .numberline').width, getEffectiveDimensions('#top-numberline .numberline').height]]);
-        brushGroup.call(brush);
-
-        // If there's a current brush selection, update it proportionally
-        const currentSelection = d3.brushSelection(brushGroup.node());
-        if (currentSelection) {
-            const oldDomain = config.initialRange;
-            const oldRange = oldDomain[1] - oldDomain[0];
-            const newRange = newDomain[1] - newDomain[0];
-            const scaleFactor = oldRange / newRange;
-
-            const newSelection = currentSelection.map(d => d * scaleFactor);
-            brushGroup.call(brush.move, newSelection);
-        }
-    }
-
-    // Reset button functionality
-    document.getElementById('reset-button').addEventListener('click', resetView);
-
-    function resetView() {
-        // Reset scales to initial domain
-        topXScale.domain(config.initialRange);
-        middleXScale.domain(config.initialRange);
-        bottomXScale.domain(config.initialRange);
-
-        // Reset axes
-        topSvg.select('.axis').call(topAxis);
-        middleSvg.select('.axis').call(middleAxis);
-        bottomSvg.select('.axis').call(bottomAxis);
-
-        // Reset zoom transforms
-        middleSvg.call(zoom.transform, d3.zoomIdentity);
-        bottomSvg.call(zoom.transform, d3.zoomIdentity);
-        topSvg.call(topZoom.transform, d3.zoomIdentity);
-
-        // Reset brush to full width
-        brushGroup.call(brush.move, [0, getEffectiveDimensions('#top-numberline .numberline').width]);
-    }
-
-    // Handle window resize
-    window.addEventListener('resize', function () {
-        // Get new dimensions
-        const topDimensions = getEffectiveDimensions('#top-numberline .numberline');
-        const middleDimensions = getEffectiveDimensions('#middle-numberline .numberline');
-        const bottomDimensions = getEffectiveDimensions('#bottom-numberline .numberline');
-
-        // Update SVG dimensions
-        d3.select('#top-numberline .numberline svg')
-            .attr('width', topDimensions.width + config.padding.left + config.padding.right)
-            .attr('height', topDimensions.height + config.padding.top + config.padding.bottom);
-
-        d3.select('#middle-numberline .numberline svg')
-            .attr('width', middleDimensions.width + config.padding.left + config.padding.right)
-            .attr('height', middleDimensions.height + config.padding.top + config.padding.bottom);
-
-        d3.select('#bottom-numberline .numberline svg')
-            .attr('width', bottomDimensions.width + config.padding.left + config.padding.right)
-            .attr('height', bottomDimensions.height + config.padding.top + config.padding.bottom);
-
-        // Update scales ranges
-        topXScale.range([0, topDimensions.width]);
-        middleXScale.range([0, middleDimensions.width]);
-        bottomXScale.range([0, bottomDimensions.width]);
-
-        // Update axes
-        topSvg.select('.axis').call(topAxis);
-        middleSvg.select('.axis').call(middleAxis);
-        bottomSvg.select('.axis').call(bottomAxis);
-
-        // Update numberlines
-        topSvg.select('line')
-            .attr('x2', topDimensions.width);
-        middleSvg.select('line')
-            .attr('x2', middleDimensions.width);
-        bottomSvg.select('line')
-            .attr('x2', bottomDimensions.width);
-
-        // Update brush extent
-        brush.extent([[0, 0], [topDimensions.width, topDimensions.height]]);
-        brushGroup.call(brush);
-
-        // If there's a current brush selection, update it proportionally
-        const currentSelection = d3.brushSelection(brushGroup.node());
-        if (currentSelection) {
-            const oldWidth = topDimensions.width;
-            const newWidth = getEffectiveDimensions('#top-numberline .numberline').width;
-            const scaleFactor = newWidth / oldWidth;
-
-            const newSelection = currentSelection.map(d => d * scaleFactor);
-            brushGroup.call(brush.move, newSelection);
-        }
+    // Optional: Redraw on window resize for true responsiveness
+    window.addEventListener('resize', () => {
+        // Simple re-init. For complex apps, might update scales/ranges instead.
+        init();
+        // After re-init, transforms might be lost, re-apply if needed or reset.
+        // For this app, re-init starts fresh, which is acceptable.
+        // Or, smarter resize:
+        // setupDimensions();
+        // xTop.range([0, usableWidth]); ... etc for all scales
+        // xTopInitial.range([0, usableWidth]); ...
+        // Redraw all axes
+        // Update brush position and zoom transforms based on current domains
+        // This is more complex than a full re-init.
     });
 });

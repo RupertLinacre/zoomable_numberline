@@ -4,29 +4,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Numberline Learning</title>
+    <title>Numberline Explorer</title>
     <link rel="stylesheet" href="style.css">
-    <script src="https://d3js.org/d3.v7.min.js"></script>
 </head>
 
 <body>
-    <div id="app">
-        <div id="numberlines-container">
-            <div id="top-numberline" class="numberline-wrapper">
-                <h2>Overview</h2>
-                <div class="numberline"></div>
-            </div>
-            <div id="middle-numberline" class="numberline-wrapper">
-                <h2>Decimals</h2>
-                <div class="numberline"></div>
-            </div>
-            <div id="bottom-numberline" class="numberline-wrapper">
-                <h2>Fractions</h2>
-                <div class="numberline"></div>
-            </div>
-        </div>
-        <button id="reset-button">Reset</button>
+    <button id="resetButton">Reset View</button>
+    <div id="chart-container">
+        <svg id="numberlines-svg"></svg>
     </div>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
     <script src="script.js"></script>
 </body>
 
