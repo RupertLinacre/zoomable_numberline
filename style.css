@@ -43,9 +43,14 @@ svg {
   display: block;
 }
 
-/* Make axis text twice as big */
+/* Make axis text and fraction labels the same size (match previous axis size) */
 .axis text {
   font-size: 2em;
+}
+.fraction-labels text {
+  font-size: 1.25em;
+  font-family: inherit;
+  font-weight: normal;
 }
 
 /* Funnel area connecting the two charts */

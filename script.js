@@ -53,22 +53,31 @@ document.addEventListener('DOMContentLoaded', () => {
             state.brushExtent = [...INIT_BRUSH_EXTENT];
             state.detailDomain = INIT_DETAIL_DOMAIN;
             state.detailDisplayMode = 'decimal';
-            const toggleBtn = document.getElementById('toggleDetailModeBtn');
-            if (toggleBtn) toggleBtn.textContent = 'Show Fractions on Detail';
+            const toggleBtnInstance = document.getElementById('toggleDetailModeBtn');
+            if (toggleBtnInstance) {
+                if (state.detailDisplayMode === 'decimal') {
+                    toggleBtnInstance.textContent = 'Show Fractions on Detail';
+                } else {
+                    toggleBtnInstance.textContent = 'Hide Fractions on Detail';
+                }
+            }
             bus.call('stateChanged');
         });
     }
 
     const toggleBtn = document.getElementById('toggleDetailModeBtn');
     if (toggleBtn) {
-        toggleBtn.addEventListener('click', () => {
+        const updateButtonText = () => {
             if (state.detailDisplayMode === 'decimal') {
-                state.detailDisplayMode = 'fraction';
-                toggleBtn.textContent = 'Show Decimals on Detail';
-            } else {
-                state.detailDisplayMode = 'decimal';
                 toggleBtn.textContent = 'Show Fractions on Detail';
+            } else {
+                toggleBtn.textContent = 'Hide Fractions on Detail';
             }
+        };
+        updateButtonText();
+        toggleBtn.addEventListener('click', () => {
+            state.detailDisplayMode = (state.detailDisplayMode === 'decimal') ? 'fraction' : 'decimal';
+            updateButtonText();
             bus.call('stateChanged');
         });
     }
@@ -245,6 +254,7 @@ topG.on('wheel', event => {
 });
 
 // --- DETAIL CHART GROUP SETUP ---
+
 const dtG_yOffset = margin.top + innerH + margin.bottom + FUNNEL_SPACING + margin.top;
 const dtG = mainSvg.append('g')
     .attr('id', 'dtG')
@@ -258,6 +268,11 @@ dtG.append('rect')
 const dtAxisG = dtG.append('g')
     .attr('class', 'axis')
     .attr('transform', `translate(0,${innerH})`);
+
+// Group for the additional fraction labels (above the axis line)
+const fractionLabelsG = dtG.append('g')
+    .attr('class', 'fraction-labels')
+    .attr('transform', `translate(0, ${innerH})`);
 
 // Detail chart wheel-zoom (attached to dtG)
 const DET_SENS = 0.0005;
@@ -347,18 +362,55 @@ function updateDetail() {
     const dtXScale = d3.scaleLinear().domain(displayDomain).range([0, width]);
     const detailAxis = d3.axisBottom(dtXScale);
 
+    // Always clear previous custom fraction labels before redrawing or hiding
+    fractionLabelsG.selectAll('text').remove();
+
     if (state.detailDisplayMode === 'fraction') {
         const bestDenom = findBestDenominator(displayDomain, ALLOWED_DENOMINATORS, MIN_FRACTION_TICKS, MAX_FRACTION_TICKS);
         if (bestDenom) {
-            const fractionTicks = generateFractionTickValues(displayDomain, bestDenom);
-            detailAxis.tickValues(fractionTicks)
-                .tickFormat(formatTickAsFraction(bestDenom));
+            const fractionTickValues = generateFractionTickValues(displayDomain, bestDenom);
+            // Configure the main decimal axis to show decimals at the same points as fractions, formatted to 4 significant figures, trim trailing zeros
+            detailAxis.tickValues(fractionTickValues).tickFormat(d => {
+                let str = Number(d).toPrecision(4);
+                // Remove trailing zeros and possible trailing decimal point
+                str = str.replace(/(\.[0-9]*[1-9])0+$/, '$1'); // Remove trailing zeros after decimal
+                str = str.replace(/\.0+$/, ''); // Remove .0, .00, etc.
+                return str;
+            });
+
+            // Render fraction labels above the axis line, same size as decimals (2em)
+            fractionLabelsG.selectAll('text')
+                .data(fractionTickValues)
+                .join('text')
+                .attr('x', d => dtXScale(d))
+                .attr('y', -10) // 10px above the axis line
+                .attr('text-anchor', 'middle')
+                .attr('fill', '#0057b8')
+                .style('font-size', null) // Remove inline font-size, use CSS only
+                .text(d => formatTickAsFraction(bestDenom)(d));
+
+            fractionLabelsG.style('display', null); // Show fraction labels
         } else {
-            detailAxis.ticks(10);
+            // Fallback: No suitable denominator found, behave like decimal mode
+            detailAxis.ticks(10).tickFormat(d => {
+                let str = Number(d).toPrecision(4);
+                str = str.replace(/(\.[0-9]*[1-9])0+$/, '$1');
+                str = str.replace(/\.0+$/, '');
+                return str;
+            });
+            fractionLabelsG.style('display', 'none');
         }
     } else {
-        detailAxis.ticks(15);
+        // Standard decimal ticks, formatted to 3 significant figures
+        detailAxis.ticks(15).tickFormat(d => {
+            let str = Number(d).toPrecision(4);
+            str = str.replace(/(\.[0-9]*[1-9])0+$/, '$1');
+            str = str.replace(/\.0+$/, '');
+            return str;
+        });
+        fractionLabelsG.style('display', 'none');
     }
+
     dtAxisG.call(detailAxis);
 }
 bus.on('stateChanged.updateDetail', updateDetail);
