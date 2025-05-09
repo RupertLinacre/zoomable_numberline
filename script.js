@@ -116,19 +116,35 @@ dtSvg.on('wheel', event => {
     const mid = base.invert(mx);
     const factor = Math.exp(event.deltaY * DET_SENS);
 
-    let [d0, d1] = base.domain();
-    let n0 = mid + (d0 - mid) * factor;
-    let n1 = mid + (d1 - mid) * factor;
+    let [currentDetailD0, currentDetailD1] = base.domain();
+    // Calculate the new potential domain based on zoom factor and mouse position
+    let newZoomedD0 = mid + (currentDetailD0 - mid) * factor;
+    let newZoomedD1 = mid + (currentDetailD1 - mid) * factor;
 
-    // clamp within brushExtent
-    const [b0, b1] = state.brushExtent;
-    n0 = Math.max(b0, Math.min(n0, b1));
-    n1 = Math.max(b0, Math.min(n1, b1));
+    const [topDomainStart, topDomainEnd] = state.topDomain;
 
-    state.detailDomain = [n0, n1];
-    state.brushExtent = [n0, n1];  // sync back to top
-    console.log('Detail zoomed domain:', state.detailDomain,
-        'Brush extent:', state.brushExtent);
+    // Clamp the new zoomed detail domain to be an inclusive subset of state.topDomain
+    let finalDetailD0 = Math.max(topDomainStart, newZoomedD0);
+    let finalDetailD1 = Math.min(topDomainEnd, newZoomedD1);
+
+    // Ensure the domain remains valid (start < end).
+    // If clamping causes the domain to collapse or invert (e.g., finalDetailD0 >= finalDetailD1),
+    // it means the zoom operation tried to go beyond the topDomain's bounds
+    // or the topDomain itself is too small to allow further distinct zooming out from that point.
+    // In such a case, set the detailDomain to the full extent of topDomain,
+    // representing the maximum possible zoom-out within the constraint.
+    if (finalDetailD0 >= finalDetailD1) {
+        state.detailDomain = [topDomainStart, topDomainEnd];
+    } else {
+        state.detailDomain = [finalDetailD0, finalDetailD1];
+    }
+
+    // IMPORTANT: state.brushExtent is NO LONGER updated by the detail zoom.
+    // The following line (which was previously here) should be removed:
+    // state.brushExtent = [n0, n1];  // sync back to top (THIS LINE IS REMOVED)
+
+    console.log('Detail zoomed. New detailDomain:', state.detailDomain);
+    console.log('Brush extent (should be unchanged by this detail zoom):', state.brushExtent);
     bus.call('stateChanged');
 });
 
