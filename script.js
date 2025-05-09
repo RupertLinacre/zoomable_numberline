@@ -12,7 +12,8 @@ const DETAIL_DOMAIN_PADDING_FACTOR = 0.03; // 3% padding factor
 const state = {
     topDomain: [...INIT_TOP_DOMAIN],
     brushExtent: [...INIT_BRUSH_EXTENT],
-    detailDomain: INIT_DETAIL_DOMAIN    // null → use brushExtent
+    detailDomain: INIT_DETAIL_DOMAIN,    // null → use brushExtent
+    detailDisplayMode: 'decimal' // 'decimal' | 'fraction'
 };
 const bus = d3.dispatch('stateChanged');
 
@@ -51,10 +52,86 @@ document.addEventListener('DOMContentLoaded', () => {
             state.topDomain = [...INIT_TOP_DOMAIN];
             state.brushExtent = [...INIT_BRUSH_EXTENT];
             state.detailDomain = INIT_DETAIL_DOMAIN;
+            state.detailDisplayMode = 'decimal';
+            const toggleBtn = document.getElementById('toggleDetailModeBtn');
+            if (toggleBtn) toggleBtn.textContent = 'Show Fractions on Detail';
+            bus.call('stateChanged');
+        });
+    }
+
+    const toggleBtn = document.getElementById('toggleDetailModeBtn');
+    if (toggleBtn) {
+        toggleBtn.addEventListener('click', () => {
+            if (state.detailDisplayMode === 'decimal') {
+                state.detailDisplayMode = 'fraction';
+                toggleBtn.textContent = 'Show Decimals on Detail';
+            } else {
+                state.detailDisplayMode = 'decimal';
+                toggleBtn.textContent = 'Show Fractions on Detail';
+            }
             bus.call('stateChanged');
         });
     }
 });
+// --- Fraction axis helpers ---
+const ALLOWED_DENOMINATORS = [2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20, 25, 30, 40, 50, 60, 100];
+const MIN_FRACTION_TICKS = 4;
+const MAX_FRACTION_TICKS = 12;
+
+function findBestDenominator(domain, allowedDenominators, minTicks, maxTicks) {
+    if (!domain) return null;
+    const [d0, d1] = domain;
+    if (d0 >= d1) return null;
+    let bestDenom = null;
+    for (const denom of allowedDenominators) {
+        const firstNumerator = Math.ceil(d0 * denom);
+        const lastNumerator = Math.floor(d1 * denom);
+        const numTicks = lastNumerator - firstNumerator + 1;
+        if (numTicks >= minTicks && numTicks <= maxTicks) {
+            bestDenom = denom;
+            break;
+        }
+    }
+    if (!bestDenom && allowedDenominators.length > 0) {
+        let fallbackDenom = null;
+        let maxVisibleTicks = 0;
+        for (const denom of allowedDenominators) {
+            const firstNumerator = Math.ceil(d0 * denom);
+            const lastNumerator = Math.floor(d1 * denom);
+            const numTicks = lastNumerator - firstNumerator + 1;
+            if (numTicks >= 1 && numTicks > maxVisibleTicks && numTicks <= maxTicks * 1.5) {
+                maxVisibleTicks = numTicks;
+                fallbackDenom = denom;
+            }
+        }
+        bestDenom = fallbackDenom;
+    }
+    return bestDenom;
+}
+
+function generateFractionTickValues(domain, denominator) {
+    if (!domain || !denominator) return [];
+    const [d0, d1] = domain;
+    const tickValues = [];
+    const firstNumerator = Math.ceil(d0 * denominator);
+    const lastNumerator = Math.floor(d1 * denominator);
+    for (let num = firstNumerator; num <= lastNumerator; num++) {
+        tickValues.push(num / denominator);
+    }
+    return tickValues;
+}
+
+function formatTickAsFraction(chosenDenominator) {
+    return function (value) {
+        const tolerance = 1e-9;
+        const numerator = Math.round(value * chosenDenominator);
+        if (Math.abs(numerator) < tolerance) return "0";
+        if (Math.abs(numerator % chosenDenominator) < tolerance) {
+            return (numerator / chosenDenominator).toString();
+        }
+        return `${numerator}/${chosenDenominator}`;
+    };
+}
 
 // --- Info panel update ---
 function updateInfoPanel() {
@@ -261,7 +338,21 @@ function updateDetail() {
     const displayDomain = getPaddedDomain(coreDomain, DETAIL_DOMAIN_PADDING_FACTOR);
 
     const dtXScale = d3.scaleLinear().domain(displayDomain).range([0, width]);
-    dtAxisG.call(d3.axisBottom(dtXScale).ticks(15));
+    const detailAxis = d3.axisBottom(dtXScale);
+
+    if (state.detailDisplayMode === 'fraction') {
+        const bestDenom = findBestDenominator(displayDomain, ALLOWED_DENOMINATORS, MIN_FRACTION_TICKS, MAX_FRACTION_TICKS);
+        if (bestDenom) {
+            const fractionTicks = generateFractionTickValues(displayDomain, bestDenom);
+            detailAxis.tickValues(fractionTicks)
+                .tickFormat(formatTickAsFraction(bestDenom));
+        } else {
+            detailAxis.ticks(10);
+        }
+    } else {
+        detailAxis.ticks(15);
+    }
+    dtAxisG.call(detailAxis);
 }
 bus.on('stateChanged.updateDetail', updateDetail);
 

@@ -51,7 +51,7 @@ svg {
 /* Funnel area connecting the two charts */
 .funnel-area {
   fill: #3399ff;
-  fill-opacity: 0.18;
+  fill-opacity: 0.0;
   stroke: none;
   pointer-events: none;
 }
