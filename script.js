@@ -1,25 +1,43 @@
-// script.js
-
-// --- Sanity check ---
-console.log("🛠 app loaded");
-if (typeof d3 === 'undefined') {
-    console.error("❌ D3 failed to load");
-} else {
-    console.log("✅ D3 v7 is ready:", d3.version);
-}
-
-// --- Shared margins & dimensions ---
 const margin = { left: 40, right: 40, top: 20, bottom: 20 };
 const height = 100;
 const innerH = height - margin.top - margin.bottom;
 
 // --- Central state & dispatcher ---
+const INIT_TOP_DOMAIN = [-2, 10];
+const INIT_BRUSH_EXTENT = [0, 2];
+const INIT_DETAIL_DOMAIN = null;
 const state = {
-    topDomain: [-2, 10],
-    brushExtent: [0, 2],
-    detailDomain: null    // null → use brushExtent
+    topDomain: [...INIT_TOP_DOMAIN],
+    brushExtent: [...INIT_BRUSH_EXTENT],
+    detailDomain: INIT_DETAIL_DOMAIN    // null → use brushExtent
 };
 const bus = d3.dispatch('stateChanged');
+
+// --- Reset button handler ---
+document.addEventListener('DOMContentLoaded', () => {
+    const resetBtn = document.getElementById('resetBtn');
+    if (resetBtn) {
+        resetBtn.addEventListener('click', () => {
+            state.topDomain = [...INIT_TOP_DOMAIN];
+            state.brushExtent = [...INIT_BRUSH_EXTENT];
+            state.detailDomain = INIT_DETAIL_DOMAIN;
+            bus.call('stateChanged');
+        });
+    }
+});
+
+// --- Info panel update ---
+function updateInfoPanel() {
+    const info = document.getElementById('infoPanel');
+    if (!info) return;
+    const [t0, t1] = state.topDomain;
+    const [b0, b1] = state.brushExtent;
+    info.innerHTML = `
+        <b>Top numberline:</b> min = <span>${t0.toFixed(3)}</span>, max = <span>${t1.toFixed(3)}</span><br>
+        <b>Brush:</b> min = <span>${b0.toFixed(3)}</span>, max = <span>${b1.toFixed(3)}</span>
+    `;
+}
+bus.on('stateChanged.infoPanel', updateInfoPanel);
 
 // --- Constraint enforcement (centralized) ---
 function enforceConstraints() {
