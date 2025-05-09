@@ -13,14 +13,18 @@ const margin = { left: 40, right: 40, top: 20, bottom: 20 };
 const height = 100;
 const innerH = height - margin.top - margin.bottom;
 
-// --- State for brush & detail zoom ---
-let brushExtentDomain = [-10, 10];
-let detailDomain = null;  // when null, falls back to brushExtentDomain
+// --- Central state & dispatcher ---
+const state = {
+    topDomain: [-100, 100],
+    brushExtent: [-10, 10],
+    detailDomain: null    // null → use brushExtent
+};
+const bus = d3.dispatch('stateChanged');
 
-// --- Top chart setup ---
+// --- TOP CHART SETUP ---
 const topC = d3.select('#topNumberline');
-const x = d3.scaleLinear().domain([-100, 100]).range([0, 0]);
-const axis = d3.axisBottom(x);
+const xScale = d3.scaleLinear().domain(state.topDomain).range([0, 0]);
+const xAxis = d3.axisBottom(xScale);
 
 const topSvg = topC.append('svg');
 const topG = topSvg.append('g')
@@ -28,66 +32,55 @@ const topG = topSvg.append('g')
 const axisG = topG.append('g')
     .attr('class', 'axis')
     .attr('transform', `translate(0,${innerH})`);
-
-const brush = d3.brushX()
-    .extent([[0, 0], [0, innerH]])   // width set dynamically in updateTop
-    .on('end', event => {
-        if (!event.sourceEvent) return;   // ignore programmatic moves
-        brushExtentDomain = event.selection.map(x.invert);
-        detailDomain = null;               // reset detail zoom on new brush
-        console.log('Brushed:', brushExtentDomain);
-        updateDetail();
-    });
-
 const brushG = topG.append('g').attr('class', 'brush');
 
-// --- draw/update top chart ---
+// brush behavior
+const brush = d3.brushX()
+    .extent([[0, 0], [0, innerH]])
+    .on('end', event => {
+        if (!event.sourceEvent) return;
+        state.brushExtent = event.selection.map(xScale.invert);
+        state.detailDomain = null;  // reset detail zoom
+        console.log('Brushed:', state.brushExtent);
+        bus.call('stateChanged');
+    });
+
+// wheel-zoom on top
+const TOP_SENS = 0.0005;
+topSvg.on('wheel', event => {
+    event.preventDefault();
+    const [mx] = d3.pointer(event, topG.node());
+    const mid = xScale.invert(mx);
+    const factor = Math.exp(event.deltaY * TOP_SENS);
+
+    const [d0, d1] = state.topDomain;
+    const n0 = mid + (d0 - mid) * factor;
+    const n1 = mid + (d1 - mid) * factor;
+
+    state.topDomain = [n0, n1];
+    console.log('Zoomed domain:', state.topDomain,
+        'Brush extent:', state.brushExtent);
+    bus.call('stateChanged');
+});
+
+// draw/top update
 function updateTop() {
     const width = topC.node().clientWidth - margin.left - margin.right;
     topSvg
         .attr('width', width + margin.left + margin.right)
         .attr('height', height);
 
-    // update scale & axis
-    x.range([0, width]);
-    axisG.call(axis);
-    console.log('Top axis domain:', x.domain());
+    xScale.domain(state.topDomain).range([0, width]);
+    axisG.call(xAxis);
+    console.log('Top axis domain:', state.topDomain);
 
-    // update brush area & position
     brush.extent([[0, 0], [width, innerH]]);
     brushG.call(brush);
-    brushG.call(brush.move, brushExtentDomain.map(x));
+    brushG.call(brush.move, state.brushExtent.map(xScale));
 }
+bus.on('stateChanged.updateTop', updateTop);
 
-updateTop();
-window.addEventListener('resize', () => {
-    updateTop();
-    updateDetail();
-});
-
-// --- Manual wheel-zoom on top chart ---
-const TOP_SENSITIVITY = 0.0005;
-topSvg.on('wheel', event => {
-    event.preventDefault();
-    const [mx] = d3.pointer(event, topG.node());
-    const midVal = x.invert(mx);
-
-    // factor: wheel-up (δY<0) → zoom in
-    const factor = Math.exp(event.deltaY * TOP_SENSITIVITY);
-
-    const [d0, d1] = x.domain();
-    const new0 = midVal + (d0 - midVal) * factor;
-    const new1 = midVal + (d1 - midVal) * factor;
-    x.domain([new0, new1]);
-
-    axisG.call(axis);
-    brushG.call(brush.move, brushExtentDomain.map(x));
-
-    console.log('Zoomed domain:', x.domain());
-    console.log('Brush extent (domain):', brushExtentDomain);
-});
-
-// --- Detail chart setup ---
+// --- DETAIL CHART SETUP ---
 const dtC = d3.select('#decimalNumberline');
 const dtSvg = dtC.append('svg');
 const dtG = dtSvg.append('g')
@@ -96,55 +89,51 @@ const dtAxisG = dtG.append('g')
     .attr('class', 'axis')
     .attr('transform', `translate(0,${innerH})`);
 
-// --- draw/update detail chart ---
+// draw/detail update
 function updateDetail() {
-    const w = dtC.node().clientWidth - margin.left - margin.right;
+    const width = dtC.node().clientWidth - margin.left - margin.right;
     dtSvg
-        .attr('width', w + margin.left + margin.right)
+        .attr('width', width + margin.left + margin.right)
         .attr('height', height);
 
-    const domainToUse = detailDomain || brushExtentDomain;
-    const xDetail = d3.scaleLinear()
-        .domain(domainToUse)
-        .range([0, w]);
+    const domain = state.detailDomain || state.brushExtent;
+    const xD = d3.scaleLinear().domain(domain).range([0, width]);
+    dtAxisG.call(d3.axisBottom(xD));
 
-    dtAxisG.call(d3.axisBottom(xDetail));
-    console.log('Detail axis domain:', xDetail.domain());
+    console.log('Detail axis domain:', domain);
 }
+bus.on('stateChanged.updateDetail', updateDetail);
 
-updateDetail();
-
-// --- Manual wheel-zoom on detail chart ---
-const DETAIL_SENSITIVITY = 0.0005;
+// wheel-zoom on detail
+const DET_SENS = 0.0005;
 dtSvg.on('wheel', event => {
     event.preventDefault();
-
     const [mx] = d3.pointer(event, dtG.node());
-    const w = dtC.node().clientWidth - margin.left - margin.right;
+    const width = dtC.node().clientWidth - margin.left - margin.right;
     const base = d3.scaleLinear()
-        .domain(detailDomain || brushExtentDomain)
-        .range([0, w]);
-    const midVal = base.invert(mx);
+        .domain(state.detailDomain || state.brushExtent)
+        .range([0, width]);
+    const mid = base.invert(mx);
+    const factor = Math.exp(event.deltaY * DET_SENS);
 
-    const factor = Math.exp(event.deltaY * DETAIL_SENSITIVITY);
+    let [d0, d1] = base.domain();
+    let n0 = mid + (d0 - mid) * factor;
+    let n1 = mid + (d1 - mid) * factor;
 
-    const [d0, d1] = base.domain();
-    let new0 = midVal + (d0 - midVal) * factor;
-    let new1 = midVal + (d1 - midVal) * factor;
+    // clamp within brushExtent
+    const [b0, b1] = state.brushExtent;
+    n0 = Math.max(b0, Math.min(n0, b1));
+    n1 = Math.max(b0, Math.min(n1, b1));
 
-    // clamp within brushExtentDomain
-    const [b0, b1] = brushExtentDomain;
-    new0 = Math.max(b0, Math.min(new0, b1));
-    new1 = Math.max(b0, Math.min(new1, b1));
-
-    detailDomain = [new0, new1];
-    // also update brush on top
-    brushExtentDomain = detailDomain;
-
-    // re-render both
-    updateTop();
-    updateDetail();
-
-    console.log('Detail zoomed domain:', detailDomain);
-    console.log('Brush extent (domain):', brushExtentDomain);
+    state.detailDomain = [n0, n1];
+    state.brushExtent = [n0, n1];  // sync back to top
+    console.log('Detail zoomed domain:', state.detailDomain,
+        'Brush extent:', state.brushExtent);
+    bus.call('stateChanged');
 });
+
+// --- RESIZE HANDLING ---
+window.addEventListener('resize', () => bus.call('stateChanged'));
+
+// --- INITIAL RENDER ---
+bus.call('stateChanged');
