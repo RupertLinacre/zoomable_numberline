@@ -190,6 +190,30 @@ function updateTop() {
     brush.extent([[0, 0], [width, innerH]]);
     brushG.call(brush);
     brushG.call(brush.move, state.brushExtent.map(xScale));
+
+    // Remove any previous custom brush lines
+    brushG.selectAll('.custom-brush-line').remove();
+
+    // Draw custom brush lines to match funnel lines
+    const brushX = state.brushExtent.map(xScale);
+    brushG.append('line')
+        .attr('class', 'custom-brush-line')
+        .attr('x1', brushX[0])
+        .attr('y1', 0)
+        .attr('x2', brushX[0])
+        .attr('y2', innerH)
+        .attr('stroke', '#3399ff')
+        .attr('stroke-width', 2)
+        .attr('pointer-events', 'none');
+    brushG.append('line')
+        .attr('class', 'custom-brush-line')
+        .attr('x1', brushX[1])
+        .attr('y1', 0)
+        .attr('x2', brushX[1])
+        .attr('y2', innerH)
+        .attr('stroke', '#3399ff')
+        .attr('stroke-width', 2)
+        .attr('pointer-events', 'none');
 }
 bus.on('stateChanged.updateTop', updateTop);
 
