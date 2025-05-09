@@ -23,7 +23,16 @@ const bus = d3.dispatch('stateChanged');
 
 // --- Constraint enforcement (centralized) ---
 function enforceConstraints() {
-    // Ensure detailDomain stays within topDomain
+    // 1. Ensure topDomain encloses brushExtent (prevents zooming past selection)
+    {
+        const [b0, b1] = state.brushExtent;
+        let [t0, t1] = state.topDomain;
+        t0 = Math.min(t0, b0);
+        t1 = Math.max(t1, b1);
+        state.topDomain = [t0, t1];
+    }
+
+    // 2. Ensure detailDomain stays within topDomain and sync brushExtent
     if (state.detailDomain) {
         const [d0, d1] = state.detailDomain;
         const [t0, t1] = state.topDomain;
@@ -38,7 +47,6 @@ function enforceConstraints() {
         state.brushExtent = [...state.detailDomain];
     }
 }
-
 bus.on('stateChanged.validate', enforceConstraints);
 
 // --- TOP CHART SETUP ---
