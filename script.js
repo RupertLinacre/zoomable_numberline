@@ -455,10 +455,10 @@ function updateDetail() {
             // Remove any previous foreignObjects
             dtAxisG.selectAll("g.tick foreignObject").remove();
 
-            // Add MathML labels via foreignObject
-            const foreignObjectWidth = 50;
-            const foreignObjectHeight = 30;
-            const yOffset = -foreignObjectHeight - 2;
+            // Add MathML labels via foreignObject (below the axis)
+            const foreignObjectWidth = 60;
+            const foreignObjectHeight = 40;
+            const yOffset = 6; // below the axis line
 
             dtAxisG.selectAll('g.tick')
                 .append('svg:foreignObject')
@@ -470,45 +470,58 @@ function updateDetail() {
                 .style('width', foreignObjectWidth + 'px')
                 .style('height', foreignObjectHeight + 'px')
                 .style('display', 'flex')
-                .style('align-items', 'center')
+                .style('align-items', 'flex-start')
                 .style('justify-content', 'center')
-                .style('font-size', '1.5em')
+                .style('font-size', '2.2em')
                 .style('color', '#0057b8')
                 .html(d => formatTickAsMathML(bestDenom)(d));
 
             // Hide D3's original decimal axis labels and domain line
-            dtAxisG.selectAll('text').style('opacity', 0);
+            dtAxisG.selectAll('text').remove();
             dtAxisG.selectAll('path.domain').style('opacity', 0.33);
 
             // Trigger MathJax
             if (window.MathJax && MathJax.typesetPromise) {
+                MathJax.typesetClear && MathJax.typesetClear();
                 MathJax.typesetPromise([dtAxisG.node()]).catch(err => console.error("MathJax error:", err));
             }
             fractionLabelsG.style('display', 'none');
         } else {
-            // Fallback: No suitable denominator found, behave like decimal mode
-            detailAxis.ticks(10).tickFormat(d => {
-                let str = Number(d).toPrecision(4);
-                str = str.replace(/(\.[0-9]*[1-9])0+$/, '$1');
-                str = str.replace(/\.0+$/, '');
-                return str;
-            });
-            mainTickValues = detailAxis.scale().ticks(10);
+            // Fallback: No suitable denominator found, show nothing
+            detailAxis.ticks(10).tickFormat(() => "");
+            mainTickValues = [];
+            dtAxisG.call(detailAxis);
+            dtAxisG.selectAll('g.tick foreignObject').remove();
+            dtAxisG.selectAll('text').remove();
             fractionLabelsG.style('display', 'none');
         }
     } else {
-        // Set all decimal axis label opacity to 1 when not showing fractions (bottom numberline only)
-        dtAxisG.selectAll('text').style('opacity', 1);
-        dtAxisG.selectAll('g.tick line').style('opacity', 1);
-        dtAxisG.selectAll('path.domain').style('opacity', 1);
-        // Standard decimal ticks, formatted to 3 significant figures
-        detailAxis.ticks(15).tickFormat(d => {
+        // DECIMAL MODE: show decimals only, no fractions
+        // Use tickValues to ensure all nice numbers (including 1.0, 2.0, etc) are included
+        // Use tickValues and also remove any extra ticks left from fraction mode
+        let tickValues = d3.ticks(displayDomain[0], displayDomain[1], 15);
+        detailAxis.tickValues(tickValues).tickFormat(d => {
+            // Always show at least one decimal for whole numbers
+            if (Math.abs(d - Math.round(d)) < 1e-8) {
+                return d.toFixed(1);
+            }
             let str = Number(d).toPrecision(4);
             str = str.replace(/(\.[0-9]*[1-9])0+$/, '$1');
             str = str.replace(/\.0+$/, '');
             return str;
         });
-        mainTickValues = detailAxis.scale().ticks(15);
+        mainTickValues = tickValues;
+        dtAxisG.call(detailAxis);
+        // Remove any previous foreignObjects
+        dtAxisG.selectAll('g.tick foreignObject').remove();
+        // Remove all ticks and let D3 fully re-create them (fixes missing decimals after switching from fractions)
+        dtAxisG.selectAll('g.tick').remove();
+        dtAxisG.call(detailAxis);
+        // Remove any previous foreignObjects
+        dtAxisG.selectAll('g.tick foreignObject').remove();
+        // Make sure decimal text is visible
+        dtAxisG.selectAll('text').style('opacity', 1);
+        dtAxisG.selectAll('path.domain').style('opacity', 1);
         fractionLabelsG.style('display', 'none');
     }
 
