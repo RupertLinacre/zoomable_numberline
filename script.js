@@ -322,6 +322,47 @@ function updateTop() {
     xScale.domain(state.topDomain).range([0, width]);
     axisG.call(xAxis);
 
+    // Remove any previous custom ticks
+    topG.selectAll('.custom-top-tick').remove();
+
+    // Use the same tick logic as detail for consistency
+    let mainTickValues = xScale.ticks(15);
+    let minorTickValues = [];
+    for (let i = 0; i < mainTickValues.length - 1; i++) {
+        minorTickValues.push((mainTickValues[i] + mainTickValues[i + 1]) / 2);
+    }
+
+    // Draw custom major ticks on the top numberline (from axis to y1_funnel)
+    const y1_funnel = innerH; // axis line
+    const y1_top = 0; // top of the numberline
+    // Major ticks: 1px, subtle (use #bbb)
+    topG.selectAll('.custom-top-tick.major')
+        .data(mainTickValues)
+        .enter()
+        .append('line')
+        .attr('class', 'custom-top-tick major')
+        .attr('x1', d => xScale(d))
+        .attr('x2', d => xScale(d))
+        .attr('y1', y1_funnel)
+        .attr('y2', y1_top)
+        .attr('stroke', '#bbb')
+        .attr('stroke-width', 1)
+        .attr('pointer-events', 'none');
+
+    // Minor ticks: 1px, even lighter (use #e0e0e0)
+    topG.selectAll('.custom-top-tick.minor')
+        .data(minorTickValues)
+        .enter()
+        .append('line')
+        .attr('class', 'custom-top-tick minor')
+        .attr('x1', d => xScale(d))
+        .attr('x2', d => xScale(d))
+        .attr('y1', y1_funnel)
+        .attr('y2', y1_top)
+        .attr('stroke', '#e0e0e0')
+        .attr('stroke-width', 1)
+        .attr('pointer-events', 'none');
+
     brush.extent([[0, 0], [width, innerH]]);
     brushG.call(brush);
     brushG.call(brush.move, state.brushExtent.map(xScale));
@@ -370,32 +411,44 @@ function updateDetail() {
     dtAxisG.selectAll('g.tick line').style('opacity', 1);
     dtAxisG.selectAll('path.domain').style('opacity', 1);
 
+    // Remove any previous custom ticks
+    dtG.selectAll('.custom-detail-tick').remove();
+
+    let mainTickValues = [];
+    let minorTickValues = [];
+    let bestDenom = null;
+    let fractionTickValues = [];
+
     if (state.detailDisplayMode === 'fraction') {
-        // Draw axis, then set all decimal axis label opacity to 0.5 when showing fractions (bottom numberline only)
-        const bestDenom = findBestDenominator(displayDomain, ALLOWED_DENOMINATORS, MIN_FRACTION_TICKS, MAX_FRACTION_TICKS);
+        bestDenom = findBestDenominator(displayDomain, ALLOWED_DENOMINATORS, MIN_FRACTION_TICKS, MAX_FRACTION_TICKS);
         if (bestDenom) {
-            const fractionTickValues = generateFractionTickValues(displayDomain, bestDenom);
-            // Configure the main decimal axis to show decimals at the same points as fractions, formatted to 4 significant figures, trim trailing zeros
-            detailAxis.tickValues(fractionTickValues).tickFormat(d => {
+            fractionTickValues = generateFractionTickValues(displayDomain, bestDenom);
+            mainTickValues = fractionTickValues;
+            // Minor ticks: midpoints between each pair of main ticks
+            minorTickValues = [];
+            for (let i = 0; i < mainTickValues.length - 1; i++) {
+                minorTickValues.push((mainTickValues[i] + mainTickValues[i + 1]) / 2);
+            }
+            // Configure the main decimal axis to show decimals at the same points as fractions
+            detailAxis.tickValues(mainTickValues).tickFormat(d => {
                 let str = Number(d).toPrecision(4);
-                // Remove trailing zeros and possible trailing decimal point
-                str = str.replace(/(\.[0-9]*[1-9])0+$/, '$1'); // Remove trailing zeros after decimal
-                str = str.replace(/\.0+$/, ''); // Remove .0, .00, etc.
+                str = str.replace(/(\.[0-9]*[1-9])0+$/, '$1');
+                str = str.replace(/\.0+$/, '');
                 return str;
             });
 
             // Render fraction labels above the axis line, same size as decimals (2em)
             fractionLabelsG.selectAll('text')
-                .data(fractionTickValues)
+                .data(mainTickValues)
                 .join('text')
                 .attr('x', d => dtXScale(d))
-                .attr('y', -10) // 10px above the axis line
+                .attr('y', -10)
                 .attr('text-anchor', 'middle')
                 .attr('fill', '#0057b8')
-                .style('font-size', null) // Remove inline font-size, use CSS only
+                .style('font-size', null)
                 .text(d => formatTickAsFraction(bestDenom)(d));
 
-            fractionLabelsG.style('display', null); // Show fraction labels
+            fractionLabelsG.style('display', null);
         } else {
             // Fallback: No suitable denominator found, behave like decimal mode
             detailAxis.ticks(10).tickFormat(d => {
@@ -404,6 +457,11 @@ function updateDetail() {
                 str = str.replace(/\.0+$/, '');
                 return str;
             });
+            mainTickValues = detailAxis.scale().ticks(10);
+            minorTickValues = [];
+            for (let i = 0; i < mainTickValues.length - 1; i++) {
+                minorTickValues.push((mainTickValues[i] + mainTickValues[i + 1]) / 2);
+            }
             fractionLabelsG.style('display', 'none');
         }
     } else {
@@ -418,14 +476,58 @@ function updateDetail() {
             str = str.replace(/\.0+$/, '');
             return str;
         });
+        mainTickValues = detailAxis.scale().ticks(15);
+        minorTickValues = [];
+        for (let i = 0; i < mainTickValues.length - 1; i++) {
+            minorTickValues.push((mainTickValues[i] + mainTickValues[i + 1]) / 2);
+        }
         fractionLabelsG.style('display', 'none');
     }
 
+    // Remove default tick lines (but keep labels)
+    detailAxis.tickSize(0);
     dtAxisG.call(detailAxis);
+
+    // Calculate the vertical extent for the ticks (should match the shaded area/vertical lines)
+    // y2_funnel is the top of the shaded area in the detail chart
+    const y_axis = innerH;
+    const y_shaded_top = 0;
+    // Draw custom major ticks (mainTickValues) on bottom numberline (from axis to shaded top)
+    // Major ticks: 1px, subtle (use #bbb)
+    dtG.selectAll('.custom-detail-tick.major.bottom')
+        .data(mainTickValues)
+        .enter()
+        .append('line')
+        .attr('class', 'custom-detail-tick major bottom')
+        .attr('x1', d => dtXScale(d))
+        .attr('x2', d => dtXScale(d))
+        .attr('y1', y_axis)
+        .attr('y2', y_shaded_top)
+        .attr('stroke', '#bbb')
+        .attr('stroke-width', 1)
+        .attr('pointer-events', 'none');
+
+    // Minor ticks: 1px, even lighter (use #e0e0e0)
+    dtG.selectAll('.custom-detail-tick.minor.bottom')
+        .data(minorTickValues)
+        .enter()
+        .append('line')
+        .attr('class', 'custom-detail-tick minor bottom')
+        .attr('x1', d => dtXScale(d))
+        .attr('x2', d => dtXScale(d))
+        .attr('y1', y_axis)
+        .attr('y2', y_shaded_top)
+        .attr('stroke', '#e0e0e0')
+        .attr('stroke-width', 1)
+        .attr('pointer-events', 'none');
+
+    // If in fraction mode, fade the decimal axis labels
     if (state.detailDisplayMode === 'fraction') {
         dtAxisG.selectAll('text').style('opacity', 0.33);
-        dtAxisG.selectAll('g.tick line').style('opacity', 0.33);
+        dtAxisG.selectAll('g.tick line').style('opacity', 0);
         dtAxisG.selectAll('path.domain').style('opacity', 0.33);
+    } else {
+        dtAxisG.selectAll('g.tick line').style('opacity', 0);
     }
 }
 bus.on('stateChanged.updateDetail', updateDetail);
