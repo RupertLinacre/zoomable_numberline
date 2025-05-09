@@ -365,7 +365,13 @@ function updateDetail() {
     // Always clear previous custom fraction labels before redrawing or hiding
     fractionLabelsG.selectAll('text').remove();
 
+    // Always reset opacity of all axis elements before drawing axis (prevents stale opacity)
+    dtAxisG.selectAll('text').style('opacity', 1);
+    dtAxisG.selectAll('g.tick line').style('opacity', 1);
+    dtAxisG.selectAll('path.domain').style('opacity', 1);
+
     if (state.detailDisplayMode === 'fraction') {
+        // Draw axis, then set all decimal axis label opacity to 0.5 when showing fractions (bottom numberline only)
         const bestDenom = findBestDenominator(displayDomain, ALLOWED_DENOMINATORS, MIN_FRACTION_TICKS, MAX_FRACTION_TICKS);
         if (bestDenom) {
             const fractionTickValues = generateFractionTickValues(displayDomain, bestDenom);
@@ -401,6 +407,10 @@ function updateDetail() {
             fractionLabelsG.style('display', 'none');
         }
     } else {
+        // Set all decimal axis label opacity to 1 when not showing fractions (bottom numberline only)
+        dtAxisG.selectAll('text').style('opacity', 1);
+        dtAxisG.selectAll('g.tick line').style('opacity', 1);
+        dtAxisG.selectAll('path.domain').style('opacity', 1);
         // Standard decimal ticks, formatted to 3 significant figures
         detailAxis.ticks(15).tickFormat(d => {
             let str = Number(d).toPrecision(4);
@@ -412,6 +422,11 @@ function updateDetail() {
     }
 
     dtAxisG.call(detailAxis);
+    if (state.detailDisplayMode === 'fraction') {
+        dtAxisG.selectAll('text').style('opacity', 0.33);
+        dtAxisG.selectAll('g.tick line').style('opacity', 0.33);
+        dtAxisG.selectAll('path.domain').style('opacity', 0.33);
+    }
 }
 bus.on('stateChanged.updateDetail', updateDetail);
 
