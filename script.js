@@ -325,36 +325,15 @@ function updateTop() {
     // Remove any previous custom ticks
     topG.selectAll('.custom-top-tick').remove();
 
-    // Use the same tick logic as detail for consistency
+    // Use only one tick per label, and make them light (#e0e0e0)
     let mainTickValues = xScale.ticks(15);
-    let minorTickValues = [];
-    for (let i = 0; i < mainTickValues.length - 1; i++) {
-        minorTickValues.push((mainTickValues[i] + mainTickValues[i + 1]) / 2);
-    }
-
-    // Draw custom major ticks on the top numberline (from axis to y1_funnel)
     const y1_funnel = innerH; // axis line
     const y1_top = 0; // top of the numberline
-    // Major ticks: 1px, subtle (use #bbb)
-    topG.selectAll('.custom-top-tick.major')
+    topG.selectAll('.custom-top-tick')
         .data(mainTickValues)
         .enter()
         .append('line')
-        .attr('class', 'custom-top-tick major')
-        .attr('x1', d => xScale(d))
-        .attr('x2', d => xScale(d))
-        .attr('y1', y1_funnel)
-        .attr('y2', y1_top)
-        .attr('stroke', '#bbb')
-        .attr('stroke-width', 1)
-        .attr('pointer-events', 'none');
-
-    // Minor ticks: 1px, even lighter (use #e0e0e0)
-    topG.selectAll('.custom-top-tick.minor')
-        .data(minorTickValues)
-        .enter()
-        .append('line')
-        .attr('class', 'custom-top-tick minor')
+        .attr('class', 'custom-top-tick')
         .attr('x1', d => xScale(d))
         .attr('x2', d => xScale(d))
         .attr('y1', y1_funnel)
@@ -415,7 +394,6 @@ function updateDetail() {
     dtG.selectAll('.custom-detail-tick').remove();
 
     let mainTickValues = [];
-    let minorTickValues = [];
     let bestDenom = null;
     let fractionTickValues = [];
 
@@ -424,12 +402,6 @@ function updateDetail() {
         if (bestDenom) {
             fractionTickValues = generateFractionTickValues(displayDomain, bestDenom);
             mainTickValues = fractionTickValues;
-            // Minor ticks: midpoints between each pair of main ticks
-            minorTickValues = [];
-            for (let i = 0; i < mainTickValues.length - 1; i++) {
-                minorTickValues.push((mainTickValues[i] + mainTickValues[i + 1]) / 2);
-            }
-            // Configure the main decimal axis to show decimals at the same points as fractions
             detailAxis.tickValues(mainTickValues).tickFormat(d => {
                 let str = Number(d).toPrecision(4);
                 str = str.replace(/(\.[0-9]*[1-9])0+$/, '$1');
@@ -458,10 +430,6 @@ function updateDetail() {
                 return str;
             });
             mainTickValues = detailAxis.scale().ticks(10);
-            minorTickValues = [];
-            for (let i = 0; i < mainTickValues.length - 1; i++) {
-                minorTickValues.push((mainTickValues[i] + mainTickValues[i + 1]) / 2);
-            }
             fractionLabelsG.style('display', 'none');
         }
     } else {
@@ -477,10 +445,6 @@ function updateDetail() {
             return str;
         });
         mainTickValues = detailAxis.scale().ticks(15);
-        minorTickValues = [];
-        for (let i = 0; i < mainTickValues.length - 1; i++) {
-            minorTickValues.push((mainTickValues[i] + mainTickValues[i + 1]) / 2);
-        }
         fractionLabelsG.style('display', 'none');
     }
 
@@ -492,27 +456,12 @@ function updateDetail() {
     // y2_funnel is the top of the shaded area in the detail chart
     const y_axis = innerH;
     const y_shaded_top = 0;
-    // Draw custom major ticks (mainTickValues) on bottom numberline (from axis to shaded top)
-    // Major ticks: 1px, subtle (use #bbb)
-    dtG.selectAll('.custom-detail-tick.major.bottom')
+    // Only one tick per label, and make them light (#e0e0e0)
+    dtG.selectAll('.custom-detail-tick')
         .data(mainTickValues)
         .enter()
         .append('line')
-        .attr('class', 'custom-detail-tick major bottom')
-        .attr('x1', d => dtXScale(d))
-        .attr('x2', d => dtXScale(d))
-        .attr('y1', y_axis)
-        .attr('y2', y_shaded_top)
-        .attr('stroke', '#bbb')
-        .attr('stroke-width', 1)
-        .attr('pointer-events', 'none');
-
-    // Minor ticks: 1px, even lighter (use #e0e0e0)
-    dtG.selectAll('.custom-detail-tick.minor.bottom')
-        .data(minorTickValues)
-        .enter()
-        .append('line')
-        .attr('class', 'custom-detail-tick minor bottom')
+        .attr('class', 'custom-detail-tick')
         .attr('x1', d => dtXScale(d))
         .attr('x2', d => dtXScale(d))
         .attr('y1', y_axis)
