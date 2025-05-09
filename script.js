@@ -139,12 +139,11 @@ dtSvg.on('wheel', event => {
         state.detailDomain = [finalDetailD0, finalDetailD1];
     }
 
-    // IMPORTANT: state.brushExtent is NO LONGER updated by the detail zoom.
-    // The following line (which was previously here) should be removed:
-    // state.brushExtent = [n0, n1];  // sync back to top (THIS LINE IS REMOVED)
+    // Sync state.brushExtent with the NEW state.detailDomain
+    state.brushExtent = [...state.detailDomain];
 
     console.log('Detail zoomed. New detailDomain:', state.detailDomain);
-    console.log('Brush extent (should be unchanged by this detail zoom):', state.brushExtent);
+    console.log('Brush extent (NOW SYNCED with detailDomain):', state.brushExtent);
     bus.call('stateChanged');
 });
 
