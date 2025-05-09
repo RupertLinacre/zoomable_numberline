@@ -125,9 +125,16 @@ function formatTickAsFraction(chosenDenominator) {
     return function (value) {
         const tolerance = 1e-9;
         const numerator = Math.round(value * chosenDenominator);
+        const absNumerator = Math.abs(numerator);
+        const sign = numerator < 0 ? '-' : '';
         if (Math.abs(numerator) < tolerance) return "0";
         if (Math.abs(numerator % chosenDenominator) < tolerance) {
             return (numerator / chosenDenominator).toString();
+        }
+        if (absNumerator > chosenDenominator) {
+            const whole = Math.trunc(numerator / chosenDenominator);
+            const remainder = absNumerator % chosenDenominator;
+            return `${sign}${Math.abs(whole)} ${remainder}/${chosenDenominator}`;
         }
         return `${numerator}/${chosenDenominator}`;
     };
