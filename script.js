@@ -21,11 +21,30 @@ const state = {
 };
 const bus = d3.dispatch('stateChanged');
 
+// --- Constraint enforcement (centralized) ---
+function enforceConstraints() {
+    // Ensure detailDomain stays within topDomain
+    if (state.detailDomain) {
+        const [d0, d1] = state.detailDomain;
+        const [t0, t1] = state.topDomain;
+        const start = Math.max(d0, t0);
+        const end = Math.min(d1, t1);
+        if (start >= end) {
+            state.detailDomain = [t0, t1];
+        } else {
+            state.detailDomain = [start, end];
+        }
+        // Sync brushExtent whenever detailDomain is explicit
+        state.brushExtent = [...state.detailDomain];
+    }
+}
+
+bus.on('stateChanged.validate', enforceConstraints);
+
 // --- TOP CHART SETUP ---
 const topC = d3.select('#topNumberline');
 const xScale = d3.scaleLinear().domain(state.topDomain).range([0, 0]);
 const xAxis = d3.axisBottom(xScale).ticks(15);
-
 const topSvg = topC.append('svg');
 const topG = topSvg.append('g')
     .attr('transform', `translate(${margin.left},${margin.top})`);
@@ -34,18 +53,21 @@ const axisG = topG.append('g')
     .attr('transform', `translate(0,${innerH})`);
 const brushG = topG.append('g').attr('class', 'brush');
 
-// brush behavior
+// brush behavior: real-time and end
 const brush = d3.brushX()
     .extent([[0, 0], [0, innerH]])
-    .on('end', event => {
+    .on('brush', event => {
         if (!event.sourceEvent) return;
         state.brushExtent = event.selection.map(xScale.invert);
-        state.detailDomain = null;  // reset detail zoom
-        console.log('Brushed:', state.brushExtent);
+        bus.call('stateChanged');
+    })
+    .on('end', event => {
+        if (!event.sourceEvent) return;
+        state.detailDomain = null;  // reset detail zoom on end
         bus.call('stateChanged');
     });
 
-// wheel-zoom on top
+// top wheel-zoom updates state only
 const TOP_SENS = 0.0005;
 topSvg.on('wheel', event => {
     event.preventDefault();
@@ -54,16 +76,11 @@ topSvg.on('wheel', event => {
     const factor = Math.exp(event.deltaY * TOP_SENS);
 
     const [d0, d1] = state.topDomain;
-    const n0 = mid + (d0 - mid) * factor;
-    const n1 = mid + (d1 - mid) * factor;
-
-    state.topDomain = [n0, n1];
-    console.log('Zoomed domain:', state.topDomain,
-        'Brush extent:', state.brushExtent);
+    state.topDomain = [mid + (d0 - mid) * factor, mid + (d1 - mid) * factor];
     bus.call('stateChanged');
 });
 
-// draw/top update
+// render top chart
 function updateTop() {
     const width = topC.node().clientWidth - margin.left - margin.right;
     topSvg
@@ -72,12 +89,12 @@ function updateTop() {
 
     xScale.domain(state.topDomain).range([0, width]);
     axisG.call(xAxis);
-    console.log('Top axis domain:', state.topDomain);
 
     brush.extent([[0, 0], [width, innerH]]);
     brushG.call(brush);
     brushG.call(brush.move, state.brushExtent.map(xScale));
 }
+
 bus.on('stateChanged.updateTop', updateTop);
 
 // --- DETAIL CHART SETUP ---
@@ -89,7 +106,7 @@ const dtAxisG = dtG.append('g')
     .attr('class', 'axis')
     .attr('transform', `translate(0,${innerH})`);
 
-// draw/detail update
+// render detail chart
 function updateDetail() {
     const width = dtC.node().clientWidth - margin.left - margin.right;
     dtSvg
@@ -99,12 +116,11 @@ function updateDetail() {
     const domain = state.detailDomain || state.brushExtent;
     const xD = d3.scaleLinear().domain(domain).range([0, width]);
     dtAxisG.call(d3.axisBottom(xD).ticks(15));
-
-    console.log('Detail axis domain:', domain);
 }
+
 bus.on('stateChanged.updateDetail', updateDetail);
 
-// wheel-zoom on detail
+// detail wheel-zoom updates state only
 const DET_SENS = 0.0005;
 dtSvg.on('wheel', event => {
     event.preventDefault();
@@ -116,39 +132,16 @@ dtSvg.on('wheel', event => {
     const mid = base.invert(mx);
     const factor = Math.exp(event.deltaY * DET_SENS);
 
-    let [currentDetailD0, currentDetailD1] = base.domain();
-    // Calculate the new potential domain based on zoom factor and mouse position
-    let newZoomedD0 = mid + (currentDetailD0 - mid) * factor;
-    let newZoomedD1 = mid + (currentDetailD1 - mid) * factor;
+    let [d0, d1] = base.domain();
+    let n0 = mid + (d0 - mid) * factor;
+    let n1 = mid + (d1 - mid) * factor;
 
-    const [topDomainStart, topDomainEnd] = state.topDomain;
-
-    // Clamp the new zoomed detail domain to be an inclusive subset of state.topDomain
-    let finalDetailD0 = Math.max(topDomainStart, newZoomedD0);
-    let finalDetailD1 = Math.min(topDomainEnd, newZoomedD1);
-
-    // Ensure the domain remains valid (start < end).
-    // If clamping causes the domain to collapse or invert (e.g., finalDetailD0 >= finalDetailD1),
-    // it means the zoom operation tried to go beyond the topDomain's bounds
-    // or the topDomain itself is too small to allow further distinct zooming out from that point.
-    // In such a case, set the detailDomain to the full extent of topDomain,
-    // representing the maximum possible zoom-out within the constraint.
-    if (finalDetailD0 >= finalDetailD1) {
-        state.detailDomain = [topDomainStart, topDomainEnd];
-    } else {
-        state.detailDomain = [finalDetailD0, finalDetailD1];
-    }
-
-    // Sync state.brushExtent with the NEW state.detailDomain
-    state.brushExtent = [...state.detailDomain];
-
-    console.log('Detail zoomed. New detailDomain:', state.detailDomain);
-    console.log('Brush extent (NOW SYNCED with detailDomain):', state.brushExtent);
+    state.detailDomain = [n0, n1];
     bus.call('stateChanged');
 });
 
-// --- RESIZE HANDLING ---
+// resize trigger
 window.addEventListener('resize', () => bus.call('stateChanged'));
 
-// --- INITIAL RENDER ---
+// initial render: validate then render
 bus.call('stateChanged');
