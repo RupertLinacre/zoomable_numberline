@@ -62,11 +62,11 @@ body {
 
 .axis text {
     fill: #555; /* Softer text color */
-    font-size: 11px; /* Slightly larger for readability */
+    font-size: 18px; /* Significantly larger for child readability */
     user-select: none; /* Prevent text selection during interactions */
 }
 
 /* Specific styling for fraction labels if they get too dense */
 #fraction-detail-svg .axis text {
-    font-size: 10px;
+    font-size: 16px;
 }
