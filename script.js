@@ -2,17 +2,46 @@ const margin = { left: 40, right: 40, top: 20, bottom: 20 };
 const chartHeight = 100; // Height for each numberline (including margins)
 const innerH = chartHeight - margin.top - margin.bottom;
 const FUNNEL_SPACING = 40; // Vertical space between the two numberlines
-
+// Define a tolerance factor for the bottom numberline
+const TOLERANCE_FACTOR = 0.07;
 // --- Central state & dispatcher ---
-const INIT_TOP_DOMAIN = [-2, 10];
+const INIT_TOP_DOMAIN = [-2, 10]; // Adjusted to add more padding and ensure zero is visible
 const INIT_BRUSH_EXTENT = [0, 2];
 const INIT_DETAIL_DOMAIN = null;
+const DETAIL_DOMAIN_PADDING_FACTOR = 0.03; // 3% padding factor
 const state = {
     topDomain: [...INIT_TOP_DOMAIN],
     brushExtent: [...INIT_BRUSH_EXTENT],
     detailDomain: INIT_DETAIL_DOMAIN    // null → use brushExtent
 };
 const bus = d3.dispatch('stateChanged');
+
+// --- Helper functions for padding ---
+function getPaddedDomain(domain, paddingFactor) {
+    if (!domain) return null; // Should not happen if called correctly
+    const [d0, d1] = domain;
+    const span = d1 - d0;
+    const paddingAmount = span * paddingFactor;
+    return [d0 - paddingAmount, d1 + paddingAmount];
+}
+
+function getUnpaddedDomain(paddedDomain, paddingFactor) {
+    if (!paddedDomain) return null; // Should not happen
+    const [pd0, pd1] = paddedDomain;
+    const paddedSpan = pd1 - pd0;
+
+    const denominator = 1 + 2 * paddingFactor;
+    if (denominator <= 0) {
+        console.warn("Cannot unpad with current paddingFactor:", paddingFactor);
+        return [...paddedDomain]; // Return original padded domain
+    }
+
+    const originalSpan = paddedSpan / denominator;
+    const totalPaddingAdded = paddedSpan - originalSpan;
+    const singleSidePaddingAmount = totalPaddingAdded / 2;
+
+    return [pd0 + singleSidePaddingAmount, pd1 - singleSidePaddingAmount];
+}
 
 // --- Reset button handler ---
 document.addEventListener('DOMContentLoaded', () => {
@@ -73,7 +102,7 @@ bus.on('stateChanged.updateDetail', updateDetail);
 
 // --- MAIN SVG AND CHART SETUP ---
 const mainChartContainer = d3.select('#mainChartContainer');
-const mainSvg = mainChartContainer.append('svg');
+const mainSvg = mainChartContainer.append('svg').attr('overflow', 'visible');
 
 // --- TOP CHART GROUP SETUP ---
 let xScale = d3.scaleLinear().domain(state.topDomain).range([0, 0]);
@@ -152,18 +181,25 @@ dtG.on('wheel', event => {
     event.preventDefault();
     const [mx] = d3.pointer(event, dtG.node());
     const width = mainChartContainer.node().clientWidth - margin.left - margin.right;
-    const currentDetailDisplayDomain = state.detailDomain || state.brushExtent;
-    const base = d3.scaleLinear()
-        .domain(currentDetailDisplayDomain)
+
+    const coreDetailDomain = state.detailDomain || state.brushExtent;
+    const displayedDetailDomain = getPaddedDomain(coreDetailDomain, DETAIL_DOMAIN_PADDING_FACTOR);
+
+    const baseScale = d3.scaleLinear()
+        .domain(displayedDetailDomain)
         .range([0, width]);
-    const mid = base.invert(mx);
+
+    const mid = baseScale.invert(mx);
     const factor = Math.exp(event.deltaY * DET_SENS);
 
-    let [d0, d1] = base.domain();
-    let n0 = mid + (d0 - mid) * factor;
-    let n1 = mid + (d1 - mid) * factor;
+    let [d0_displayed, d1_displayed] = baseScale.domain();
+    let new_displayed_0 = mid + (d0_displayed - mid) * factor;
+    let new_displayed_1 = mid + (d1_displayed - mid) * factor;
+    const newZoomedDisplayedDomain = [new_displayed_0, new_displayed_1];
 
-    state.detailDomain = [n0, n1];
+    const newCoreDomain = getUnpaddedDomain(newZoomedDisplayedDomain, DETAIL_DOMAIN_PADDING_FACTOR);
+
+    state.detailDomain = newCoreDomain;
     bus.call('stateChanged');
 });
 
@@ -221,25 +257,11 @@ function updateDetail() {
     const width = mainChartContainer.node().clientWidth - margin.left - margin.right;
     dtG.select('rect.event-capture-rect').attr('width', width);
 
-    const domain = state.detailDomain || state.brushExtent;
-    const dtXScale = d3.scaleLinear().domain(domain).range([0, width]);
+    const coreDomain = state.detailDomain || state.brushExtent;
+    const displayDomain = getPaddedDomain(coreDomain, DETAIL_DOMAIN_PADDING_FACTOR);
+
+    const dtXScale = d3.scaleLinear().domain(displayDomain).range([0, width]);
     dtAxisG.call(d3.axisBottom(dtXScale).ticks(15));
-
-    // Always attach wheel event for zooming on the detail number line
-    dtG.on('wheel', event => {
-        event.preventDefault();
-        const [mx] = d3.pointer(event, dtG.node());
-        const base = d3.scaleLinear().domain(state.detailDomain || state.brushExtent).range([0, width]);
-        const mid = base.invert(mx);
-        const factor = Math.exp(event.deltaY * DET_SENS);
-
-        let [d0, d1] = base.domain();
-        let n0 = mid + (d0 - mid) * factor;
-        let n1 = mid + (d1 - mid) * factor;
-
-        state.detailDomain = [n0, n1];
-        bus.call('stateChanged');
-    });
 }
 bus.on('stateChanged.updateDetail', updateDetail);
 
@@ -247,25 +269,20 @@ function updateFunnelLines() {
     const width = mainChartContainer.node().clientWidth - margin.left - margin.right;
     if (width <= 0) return;
 
-    // Y-coordinates
     const y1_funnel = margin.top + innerH;
-    // The axis line in the detail chart is at y = dtG_yOffset + innerH (axis is at bottom of detail chart group)
-    // But the axis line is relative to the detail group, so its absolute y is:
-    // dtG_yOffset + innerH
-    // However, the axis visually sits at the bottom of the detail chart's allocated area, so we should subtract margin.bottom
-    const y2_funnel = dtG_yOffset + innerH; // - margin.bottom; // Remove subtraction, axis is at this y
+    const y2_funnel = dtG_yOffset + innerH;
 
-    // X-coordinates for the top chart (brush extent)
     const x_start_top_funnel = margin.left + xScale(state.brushExtent[0]);
     const x_end_top_funnel = margin.left + xScale(state.brushExtent[1]);
 
-    // X-coordinates for the detail chart (corresponding to brush extent values)
-    const detailDisplayDomain = state.detailDomain || state.brushExtent;
-    const tempDetailScale = d3.scaleLinear().domain(detailDisplayDomain).range([0, width]);
+    const coreDetailDomain = state.detailDomain || state.brushExtent;
+    const displayDetailDomain = getPaddedDomain(coreDetailDomain, DETAIL_DOMAIN_PADDING_FACTOR);
+
+    const tempDetailScale = d3.scaleLinear().domain(displayDetailDomain).range([0, width]);
+
     const x_start_bottom_funnel = margin.left + tempDetailScale(state.brushExtent[0]);
     const x_end_bottom_funnel = margin.left + tempDetailScale(state.brushExtent[1]);
 
-    // Draw the blue funnel area
     const points = [
         [x_start_top_funnel, y1_funnel],
         [x_end_top_funnel, y1_funnel],
@@ -274,7 +291,6 @@ function updateFunnelLines() {
     ];
     funnelArea.attr('points', points.map(p => p.join(",")).join(" "));
 
-    // Draw the blue funnel lines
     funnelLine1
         .attr('x1', x_start_top_funnel)
         .attr('y1', y1_funnel)
