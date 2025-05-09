@@ -210,6 +210,11 @@ topG.append('rect')
     .attr('class', 'event-capture-rect')
     .attr('height', innerH); // Width set in updateTop
 
+
+// Add a group for grid lines (behind axis labels)
+const gridG = topG.append('g')
+    .attr('class', 'grid-lines');
+
 const axisG = topG.append('g')
     .attr('class', 'axis')
     .attr('transform', `translate(0,${innerH})`);
@@ -265,6 +270,11 @@ dtG.append('rect')
     .attr('class', 'event-capture-rect')
     .attr('height', innerH); // Width set in updateDetail
 
+
+// Add a group for grid lines (behind axis labels) in detail chart
+const dtGridG = dtG.append('g')
+    .attr('class', 'grid-lines');
+
 const dtAxisG = dtG.append('g')
     .attr('class', 'axis')
     .attr('transform', `translate(0,${innerH})`);
@@ -319,17 +329,18 @@ function updateTop() {
 
     topG.select('rect.event-capture-rect').attr('width', width);
 
-    xScale.domain(state.topDomain).range([0, width]);
-    axisG.call(xAxis);
 
-    // Remove any previous custom ticks
-    topG.selectAll('.custom-top-tick').remove();
+    xScale.domain(state.topDomain).range([0, width]);
+
+
+    // Remove any previous custom ticks from gridG
+    gridG.selectAll('.custom-top-tick').remove();
 
     // Use only one tick per label, and make them light (#e0e0e0)
     let mainTickValues = xScale.ticks(15);
     const y1_funnel = innerH; // axis line
     const y1_top = 0; // top of the numberline
-    topG.selectAll('.custom-top-tick')
+    gridG.selectAll('.custom-top-tick')
         .data(mainTickValues)
         .enter()
         .append('line')
@@ -341,6 +352,9 @@ function updateTop() {
         .attr('stroke', '#e0e0e0')
         .attr('stroke-width', 1)
         .attr('pointer-events', 'none');
+
+    // Now draw the axis labels above the grid lines
+    axisG.call(xAxis);
 
     brush.extent([[0, 0], [width, innerH]]);
     brushG.call(brush);
@@ -390,8 +404,10 @@ function updateDetail() {
     dtAxisG.selectAll('g.tick line').style('opacity', 1);
     dtAxisG.selectAll('path.domain').style('opacity', 1);
 
-    // Remove any previous custom ticks
-    dtG.selectAll('.custom-detail-tick').remove();
+
+
+    // Remove any previous custom ticks from dtGridG
+    dtGridG.selectAll('.custom-detail-tick').remove();
 
     let mainTickValues = [];
     let bestDenom = null;
@@ -448,16 +464,13 @@ function updateDetail() {
         fractionLabelsG.style('display', 'none');
     }
 
-    // Remove default tick lines (but keep labels)
-    detailAxis.tickSize(0);
-    dtAxisG.call(detailAxis);
 
     // Calculate the vertical extent for the ticks (should match the shaded area/vertical lines)
     // y2_funnel is the top of the shaded area in the detail chart
     const y_axis = innerH;
     const y_shaded_top = 0;
     // Only one tick per label, and make them light (#e0e0e0)
-    dtG.selectAll('.custom-detail-tick')
+    dtGridG.selectAll('.custom-detail-tick')
         .data(mainTickValues)
         .enter()
         .append('line')
@@ -469,6 +482,10 @@ function updateDetail() {
         .attr('stroke', '#e0e0e0')
         .attr('stroke-width', 1)
         .attr('pointer-events', 'none');
+
+    // Remove default tick lines (but keep labels)
+    detailAxis.tickSize(0);
+    dtAxisG.call(detailAxis);
 
     // If in fraction mode, fade the decimal axis labels
     if (state.detailDisplayMode === 'fraction') {
