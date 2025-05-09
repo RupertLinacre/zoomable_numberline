@@ -15,8 +15,8 @@ const innerH = height - margin.top - margin.bottom;
 
 // --- Central state & dispatcher ---
 const state = {
-    topDomain: [-100, 100],
-    brushExtent: [-10, 10],
+    topDomain: [-2, 10],
+    brushExtent: [0, 2],
     detailDomain: null    // null → use brushExtent
 };
 const bus = d3.dispatch('stateChanged');
