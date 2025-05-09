@@ -1,72 +1,21 @@
-body {
-    display: flex;
-    flex-direction: column;
-    height: 100vh;
-    margin: 0;
-    font-family: Arial, sans-serif;
-    background-color: #f4f7f6; /* Gentle background */
-    color: #333;
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: sans-serif;
 }
 
-.number-line-container {
-    flex-shrink: 0; /* Prevent shrinking */
-    height: 100px;
-    padding: 10px 20px; /* Padding around SVGs, more on sides */
-    box-sizing: border-box;
-    background-color: #ffffff; /* White background for bands */
-    border-bottom: 1px solid #e0e0e0; /* Softer separator */
+h1 {
+  margin: 12px 20px;
+  font-size: 1.25rem;
 }
 
-.number-line-container svg {
-    width: 100%;
-    height: 100%; /* SVG internal height is 100px - 2*padding = 80px effectively for drawing */
-    display: block; /* Important for consistent layout */
+.chart {
+  height: 100px;
+  padding: 0 20px;
+  box-sizing: border-box;
 }
 
-#resetButton {
-    display: block; /* To allow margin auto for centering */
-    margin: 20px auto;
-    padding: 12px 25px;
-    font-size: 16px;
-    color: #fff;
-    background-color: #5c9aff; /* Gentle blue */
-    border: none;
-    border-radius: 5px;
-    cursor: pointer;
-    transition: background-color 0.2s ease;
-}
-
-#resetButton:hover {
-    background-color: #4a88e8; /* Slightly darker blue on hover */
-}
-
-/* D3 specific styles */
-.brush .selection {
-    fill: #72bcd4; /* Softer blue for brush */
-    fill-opacity: 0.3;
-    stroke: #5c9aff;
-    stroke-width: 1px;
-}
-
-.brush .handle { /* Make handles a bit more visible if needed */
-    fill: #ddd;
-    stroke: #999;
-}
-
-.axis path,
-.axis line {
-    fill: none;
-    stroke: #888; /* Softer axis/tick lines */
-    shape-rendering: crispEdges;
-}
-
-.axis text {
-    fill: #555; /* Softer text color */
-    font-size: 18px; /* Significantly larger for child readability */
-    user-select: none; /* Prevent text selection during interactions */
-}
-
-/* Specific styling for fraction labels if they get too dense */
-#fraction-detail-svg .axis text {
-    font-size: 16px;
+svg {
+  width: 100%;
+  height: 100%;
 }
