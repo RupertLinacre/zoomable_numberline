@@ -1,3 +1,33 @@
+// --- MathML fraction label helper ---
+function formatTickAsMathML(chosenDenominator) {
+    return function (value) {
+        const tolerance = 1e-9;
+        const num = Math.round(value * chosenDenominator);
+        const absNum = Math.abs(num);
+        const sign = num < 0 ? '-' : '';
+        const den = chosenDenominator;
+
+        let mathmlString = "";
+
+        if (Math.abs(value) < tolerance && Math.abs(num) < tolerance) {
+            mathmlString = `<mn>0</mn>`;
+        } else if (Math.abs(num % den) < tolerance) {
+            const wholeVal = num / den;
+            mathmlString = `<mn>${wholeVal}</mn>`;
+        } else if (absNum > den) {
+            const wholePart = Math.trunc(num / den);
+            const remainderNum = absNum % den;
+            if (wholePart === 0) {
+                mathmlString = `<mo>${sign}</mo><mfrac><mn>${remainderNum}</mn><mn>${den}</mn></mfrac>`;
+            } else {
+                mathmlString = `<mo>${sign}</mo><mn>${Math.abs(wholePart)}</mn><mfrac><mn>${remainderNum}</mn><mn>${den}</mn></mfrac>`;
+            }
+        } else {
+            mathmlString = `<mo>${sign}</mo><mfrac><mn>${absNum}</mn><mn>${den}</mn></mfrac>`;
+        }
+        return `<math xmlns="http://www.w3.org/1998/Math/MathML">${mathmlString}</math>`;
+    };
+}
 const margin = { left: 40, right: 40, top: 20, bottom: 20 };
 const chartHeight = 100; // Height for each numberline (including margins)
 const innerH = chartHeight - margin.top - margin.bottom;
@@ -416,27 +446,45 @@ function updateDetail() {
     if (state.detailDisplayMode === 'fraction') {
         bestDenom = findBestDenominator(displayDomain, ALLOWED_DENOMINATORS, MIN_FRACTION_TICKS, MAX_FRACTION_TICKS);
         if (bestDenom) {
-            fractionTickValues = generateFractionTickValues(displayDomain, bestDenom);
-            mainTickValues = fractionTickValues;
-            detailAxis.tickValues(mainTickValues).tickFormat(d => {
-                let str = Number(d).toPrecision(4);
-                str = str.replace(/(\.[0-9]*[1-9])0+$/, '$1');
-                str = str.replace(/\.0+$/, '');
-                return str;
-            });
+            mainTickValues = generateFractionTickValues(displayDomain, bestDenom);
+            detailAxis.tickValues(mainTickValues).tickFormat(() => ""); // Hide D3's text labels
 
-            // Render fraction labels above the axis line, same size as decimals (2em)
-            fractionLabelsG.selectAll('text')
-                .data(mainTickValues)
-                .join('text')
-                .attr('x', d => dtXScale(d))
-                .attr('y', -10)
-                .attr('text-anchor', 'middle')
-                .attr('fill', '#0057b8')
-                .style('font-size', null)
-                .text(d => formatTickAsFraction(bestDenom)(d));
+            // Call axis to generate g.tick elements
+            dtAxisG.call(detailAxis);
 
-            fractionLabelsG.style('display', null);
+            // Remove any previous foreignObjects
+            dtAxisG.selectAll("g.tick foreignObject").remove();
+
+            // Add MathML labels via foreignObject
+            const foreignObjectWidth = 50;
+            const foreignObjectHeight = 30;
+            const yOffset = -foreignObjectHeight - 2;
+
+            dtAxisG.selectAll('g.tick')
+                .append('svg:foreignObject')
+                .attr('width', foreignObjectWidth)
+                .attr('height', foreignObjectHeight)
+                .attr('x', -foreignObjectWidth / 2)
+                .attr('y', yOffset)
+                .append('xhtml:div')
+                .style('width', foreignObjectWidth + 'px')
+                .style('height', foreignObjectHeight + 'px')
+                .style('display', 'flex')
+                .style('align-items', 'center')
+                .style('justify-content', 'center')
+                .style('font-size', '1.5em')
+                .style('color', '#0057b8')
+                .html(d => formatTickAsMathML(bestDenom)(d));
+
+            // Hide D3's original decimal axis labels and domain line
+            dtAxisG.selectAll('text').style('opacity', 0);
+            dtAxisG.selectAll('path.domain').style('opacity', 0.33);
+
+            // Trigger MathJax
+            if (window.MathJax && MathJax.typesetPromise) {
+                MathJax.typesetPromise([dtAxisG.node()]).catch(err => console.error("MathJax error:", err));
+            }
+            fractionLabelsG.style('display', 'none');
         } else {
             // Fallback: No suitable denominator found, behave like decimal mode
             detailAxis.ticks(10).tickFormat(d => {
