@@ -1,22 +1,30 @@
 /* Blue brush selection for top numberline */
+h1 {
+  margin: 12px 20px;
+  font-size: 1.25rem;
+}
+
+/* Blue brush selection for top numberline */
 .brush .selection {
   fill: #3399ff !important;
   fill-opacity: 0.3;
   stroke: none;
 }
 
-/* Decimal numberline axis: blue for text and lines */
-#decimalNumberline .axis text {
+/* Axis: blue for text and lines in detail chart */
+#dtG .axis text {
   fill: #0057b8;
 }
-#decimalNumberline .axis line,
-#decimalNumberline .axis path {
+#dtG .axis line,
+#dtG .axis path {
   stroke: #0057b8;
 }
+
 html, body {
   margin: 0;
   padding: 0;
   font-family: sans-serif;
+  height: 100%;
 }
 
 h1 {
@@ -24,18 +32,39 @@ h1 {
   font-size: 1.25rem;
 }
 
-.chart {
-  height: 110px;
+/* Main container for the single SVG */
+.chart-container {
   padding: 0 20px;
   box-sizing: border-box;
 }
 
 svg {
   width: 100%;
-  height: 100%;
+  display: block;
 }
 
 /* Make axis text twice as big */
 .axis text {
   font-size: 2em;
+}
+
+/* Funnel area connecting the two charts */
+.funnel-area {
+  fill: #3399ff;
+  fill-opacity: 0.18;
+  stroke: none;
+  pointer-events: none;
+}
+
+/* Funnel lines connecting the two charts */
+.funnel-line {
+    stroke: #3399ff;
+    stroke-width: 2px;
+    stroke-dasharray: none;
+}
+
+/* Background rects for capturing mouse events on groups */
+.event-capture-rect {
+    fill: none;
+    pointer-events: all;
 }
