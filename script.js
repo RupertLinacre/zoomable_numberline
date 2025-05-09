@@ -269,8 +269,8 @@ function updateFunnelLines() {
     const width = mainChartContainer.node().clientWidth - margin.left - margin.right;
     if (width <= 0) return;
 
-    const y1_funnel = margin.top + innerH;
-    const y2_funnel = dtG_yOffset + innerH;
+    const y1_funnel = margin.top + innerH; // Top axis
+    const y2_funnel = dtG_yOffset + innerH - innerH; // Stop above the decimal axis, where vertical lines start
 
     const x_start_top_funnel = margin.left + xScale(state.brushExtent[0]);
     const x_end_top_funnel = margin.left + xScale(state.brushExtent[1]);
@@ -302,6 +302,40 @@ function updateFunnelLines() {
         .attr('y1', y1_funnel)
         .attr('x2', x_end_bottom_funnel)
         .attr('y2', y2_funnel);
+
+    // Add vertical lines from the bottom funnel points with the same height as the brush
+    mainSvg.selectAll('.vertical-line').remove(); // Clear previous vertical lines
+
+    mainSvg.append('line')
+        .attr('class', 'vertical-line')
+        .attr('x1', x_start_bottom_funnel)
+        .attr('y1', y2_funnel)
+        .attr('x2', x_start_bottom_funnel)
+        .attr('y2', dtG_yOffset + innerH)
+        .attr('stroke', '#3399ff')
+        .attr('stroke-width', 2);
+
+    mainSvg.append('line')
+        .attr('class', 'vertical-line')
+        .attr('x1', x_end_bottom_funnel)
+        .attr('y1', y2_funnel)
+        .attr('x2', x_end_bottom_funnel)
+        .attr('y2', dtG_yOffset + innerH)
+        .attr('stroke', '#3399ff')
+        .attr('stroke-width', 2);
+
+    // Add shading between the vertical lines
+    mainSvg.selectAll('.shaded-area').remove(); // Clear previous shaded areas
+
+    mainSvg.append('rect')
+        .attr('class', 'shaded-area')
+        .attr('x', x_start_bottom_funnel)
+        .attr('y', y2_funnel)
+        .attr('width', x_end_bottom_funnel - x_start_bottom_funnel)
+        .attr('height', dtG_yOffset + innerH - y2_funnel)
+        .attr('fill', '#3399ff')
+        .attr('opacity', 0.2)
+        .attr('pointer-events', 'none');
 }
 bus.on('stateChanged.updateFunnelLines', updateFunnelLines);
 
