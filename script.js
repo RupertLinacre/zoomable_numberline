@@ -24,7 +24,7 @@ const bus = d3.dispatch('stateChanged');
 // --- TOP CHART SETUP ---
 const topC = d3.select('#topNumberline');
 const xScale = d3.scaleLinear().domain(state.topDomain).range([0, 0]);
-const xAxis = d3.axisBottom(xScale);
+const xAxis = d3.axisBottom(xScale).ticks(15);
 
 const topSvg = topC.append('svg');
 const topG = topSvg.append('g')
@@ -98,7 +98,7 @@ function updateDetail() {
 
     const domain = state.detailDomain || state.brushExtent;
     const xD = d3.scaleLinear().domain(domain).range([0, width]);
-    dtAxisG.call(d3.axisBottom(xD));
+    dtAxisG.call(d3.axisBottom(xD).ticks(15));
 
     console.log('Detail axis domain:', domain);
 }
