@@ -1,3 +1,18 @@
+/* Blue brush selection for top numberline */
+.brush .selection {
+  fill: #3399ff !important;
+  fill-opacity: 0.3;
+  stroke: none;
+}
+
+/* Decimal numberline axis: blue for text and lines */
+#decimalNumberline .axis text {
+  fill: #0057b8;
+}
+#decimalNumberline .axis line,
+#decimalNumberline .axis path {
+  stroke: #0057b8;
+}
 html, body {
   margin: 0;
   padding: 0;
