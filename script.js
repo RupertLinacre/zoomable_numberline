@@ -75,8 +75,8 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 // --- Fraction axis helpers ---
 const ALLOWED_DENOMINATORS = [2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20, 25, 30, 40, 50, 60, 100];
-const MIN_FRACTION_TICKS = 4;
-const MAX_FRACTION_TICKS = 12;
+const MIN_FRACTION_TICKS = 8;
+const MAX_FRACTION_TICKS = 24;
 
 function findBestDenominator(domain, allowedDenominators, minTicks, maxTicks) {
     if (!domain) return null;
